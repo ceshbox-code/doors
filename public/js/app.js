@@ -1,6 +1,6 @@
 const API = '/api/v1';
 const DB_NAME = 'door-offline-v1';
-let state = { user: null, csrf: '', page: 'home', workTypes: [], online: navigator.onLine, busy: false };
+let state = { user: null, csrf: '', serverAuthenticated: false, page: 'home', workTypes: [], online: navigator.onLine, busy: false };
 
 const app = document.getElementById('app');
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -63,12 +63,20 @@ async function loadWorkTypes(){
 async function boot(){
   try{
     const cached=await metaGet('auth').catch(()=>null);
-    if(cached?.value){state.user=cached.value.user;state.csrf=cached.value.csrf||'';}
+    if(cached?.value?.user)state.user=cached.value.user;
+    state.csrf='';
+    state.serverAuthenticated=false;
     if(navigator.onLine){
-      try{const data=await api('/auth/me');state.user=data.user;state.csrf=data.csrf_token;await metaPut('auth',{user:state.user,csrf:state.csrf});}
-      catch(e){if(e.status===401){state.user=null;state.csrf='';await metaPut('auth',null);}else if(!state.user)throw e;}
+      try{
+        const data=await api('/auth/me');
+        state.user=data.user;state.csrf=data.csrf_token;state.serverAuthenticated=true;
+        await metaPut('auth',{user:state.user});
+      }catch(e){
+        if(e.status===401){state.user=null;state.csrf='';state.serverAuthenticated=false;await metaPut('auth',null);}
+        else if(!state.user)throw e;
+      }
     }
-    if(state.user){await loadWorkTypes();render();if(navigator.onLine)syncQueue();}
+    if(state.user){await loadWorkTypes();render();if(state.serverAuthenticated)syncQueue();}
     else renderLogin();
   }catch(e){renderLogin(e.message);}
 }
@@ -77,7 +85,7 @@ function renderLogin(error=''){
   app.innerHTML=`<main class="login-wrap"><form class="login-card" id="login-form"><div class="brand-mark">Д</div><h1>Учёт дверей</h1><p class="muted">Вход в систему</p>${error?`<p class="error">${esc(error)}</p>`:''}<div class="field"><label for="username">Логин</label><input id="username" name="username" autocomplete="username" required></div><div class="field"><label for="password">Пароль</label><input id="password" name="password" type="password" autocomplete="current-password" required></div><button class="btn block" type="submit">Войти</button><p class="hint">Для первого входа требуется подключение к серверу.</p></form></main>`;
   document.getElementById('login-form').addEventListener('submit',async e=>{
     e.preventDefault();const form=e.currentTarget;const btn=form.querySelector('button');btn.disabled=true;btn.textContent='Вход…';
-    try{const data=await api('/auth/login',{method:'POST',body:JSON.stringify({username:form.username.value,password:form.password.value})});state.user=data.user;state.csrf=data.csrf_token;await metaPut('auth',{user:state.user,csrf:state.csrf});await loadWorkTypes();state.page='home';render();toast('Вход выполнен');}
+    try{const data=await api('/auth/login',{method:'POST',body:JSON.stringify({username:form.username.value,password:form.password.value})});state.user=data.user;state.csrf=data.csrf_token;state.serverAuthenticated=true;await metaPut('auth',{user:state.user});await loadWorkTypes();state.page='home';render();toast('Вход выполнен');}
     catch(err){renderLogin(err.message);}finally{btn.disabled=false;}
   });
 }
@@ -158,7 +166,7 @@ async function renderQueue(el){
 }
 function typeName(id){return state.workTypes.find(t=>String(t.id)===String(id))?.name||'Вид работы';}
 async function syncQueue(){
-  if(!navigator.onLine||!state.user||state.busy)return;
+  if(!navigator.onLine||!state.user||!state.serverAuthenticated||state.busy)return;
   state.busy=true;
   try{
     const rows=(await queueAll()).sort((a,b)=>a.createdLocal.localeCompare(b.createdLocal));
@@ -337,13 +345,28 @@ async function renderFinance(el){
 }
 
 function recordHtml(r){return `<article class="record-card"><div class="record-main"><strong>${esc(r.work_type?.name||'Работа')} · ${esc(r.door?.number||'Без номера')}</strong><div class="record-meta"><span>Выполнено: ${date(r.completed_at)}</span><span>${esc(r.user?.full_name||'')}</span><span>${Number(r.photos_count||0)} фото</span><span class="pill ${r.status==='voided'?'pending':'synced'}">${r.status==='voided'?'Аннулирована':'Действует'}</span></div><div class="hint">${r.completed_at_source==='device'?'Время выполнения с устройства':'Время выполнения по серверу'} · Получено сервером: ${date(r.received_at)}</div>${r.status==='voided'&&r.void_reason?`<div class="hint">Причина аннулирования: ${esc(r.void_reason)}</div>`:''}</div><div class="amount">${money(r.total_amount)}</div></article>`;}
-async function logout(){
-  if(navigator.onLine){try{await api('/auth/logout',{method:'POST',body:'{}'});}catch(_){}}
-  state.user=null;state.csrf='';await metaPut('auth',null);renderLogin();
+async async function logout(){
+  if(navigator.onLine&&state.serverAuthenticated){try{await api('/auth/logout',{method:'POST',body:'{}'});}catch(_){}}
+  state.user=null;state.csrf='';state.serverAuthenticated=false;await metaPut('auth',null);renderLogin();
 }
-window.addEventListener('online',()=>{state.online=true;if(state.user){render();syncQueue();}else renderLogin();});
-window.addEventListener('offline',()=>{state.online=false;if(state.user)render();});
-window.addEventListener('focus',()=>{if(state.user&&navigator.onLine)syncQueue();});
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.user&&navigator.onLine)syncQueue();});
+async function reconnectAndSync(){
+  if(!navigator.onLine||!state.user)return;
+  try{
+    const data=await api('/auth/me');
+    state.user=data.user;state.csrf=data.csrf_token;state.serverAuthenticated=true;
+    await metaPut('auth',{user:state.user});
+    await loadWorkTypes();
+    render();
+    await syncQueue();
+  }catch(e){
+    state.serverAuthenticated=false;state.csrf='';
+    if(e.status===401){state.user=null;await metaPut('auth',null);renderLogin('Сессия завершена. Войдите снова — локальная очередь сохранена.');}
+    else if(state.user){render();toast('Сервер пока недоступен. Работы останутся на устройстве.');}
+  }
+}
+window.addEventListener('online',()=>{state.online=true;if(state.user){render();reconnectAndSync();}else renderLogin();});
+window.addEventListener('offline',()=>{state.online=false;state.serverAuthenticated=false;state.csrf='';if(state.user)render();});
+window.addEventListener('focus',()=>{if(state.user&&navigator.onLine)reconnectAndSync();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.user&&navigator.onLine)reconnectAndSync();});
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));}
 boot();
