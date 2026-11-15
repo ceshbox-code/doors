@@ -34,14 +34,14 @@ final class ExportController extends BaseController
 
     public function production(Request $r): Response
     {
-        $f = ReportFilters::fromQuery($r->query);
+        $f = $this->filters($r);
         $d = $this->reports->production($f);
         return $this->pdf($r, 'production', $d, ReportHtml::production($d), 'P', ['filters' => ReportFilters::describe($f)]);
     }
 
     public function payments(Request $r): Response
     {
-        $f = ReportFilters::fromQuery($r->query);
+        $f = $this->filters($r);
         $status = isset($r->query['status']) && is_string($r->query['status']) ? $r->query['status'] : 'posted';
         if (!in_array($status, ['posted', 'draft', 'cancelled', 'all'], true)) {
             throw new ApiException('VALIDATION_ERROR', 'Проверьте введённые данные', 422, ['status' => 'posted, draft, cancelled или all']);
@@ -52,14 +52,14 @@ final class ExportController extends BaseController
 
     public function finance(Request $r): Response
     {
-        $f = ReportFilters::fromQuery($r->query);
+        $f = $this->filters($r);
         $d = $this->reports->finance($f);
         return $this->pdf($r, 'finance', $d, ReportHtml::finance($d), 'P', ['filters' => ReportFilters::describe($f)]);
     }
 
     public function photos(Request $r): Response
     {
-        $f = ReportFilters::fromQuery($r->query);
+        $f = $this->filters($r);
         $d = $this->reports->photos($f);
         return $this->pdf($r, 'photos', $d, ReportHtml::photos($d), 'P', ['filters' => ReportFilters::describe($f), 'records' => count($d['items'])]);
     }
@@ -88,11 +88,27 @@ final class ExportController extends BaseController
 
     // ----------------------------------------------------------------- CSV / XLSX
 
+    /** Apply an unoverrideable user scope to every report requested by a master. */
+    private function scopedQuery(Request $r): array
+    {
+        $query = $r->query;
+        if (($r->user['role'] ?? '') === 'master') {
+            $query['user_id'] = (string) (int) $r->user['id'];
+        }
+        return $query;
+    }
+
+    private function filters(Request $r): array
+    {
+        return ReportFilters::fromQuery($this->scopedQuery($r));
+    }
+
     private function dataset(Request $r): array
     {
-        $name = isset($r->query['dataset']) && is_string($r->query['dataset']) && $r->query['dataset'] !== '' ? $r->query['dataset'] : 'works';
-        $f = ReportFilters::fromQuery($r->query);
-        return [$name, $f, $this->export->dataset($name, $f, $r->query)];
+        $query = $this->scopedQuery($r);
+        $name = isset($query['dataset']) && is_string($query['dataset']) && $query['dataset'] !== '' ? $query['dataset'] : 'works';
+        $f = ReportFilters::fromQuery($query);
+        return [$name, $f, $this->export->dataset($name, $f, $query)];
     }
 
     public function csv(Request $r): Response
