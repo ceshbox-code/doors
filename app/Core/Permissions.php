@@ -13,12 +13,12 @@ final class Permissions
         'doors.lookup', 'doors.view', 'doors.create',
         'photos.view', 'photos.delete',
         'finance.view_own', 'finance.view_all', 'finance.manage',
-        'stats.view', 'stats.view_details', 'reports.export', 'audit.view', 'settings.manage',
+        'stats.view', 'stats.view_details', 'reports.export', 'reports.export_own', 'audit.view', 'settings.manage',
     ];
 
     private const MATRIX = [
         'owner' => ['users.manage', 'stats.view'],
-        'master' => ['work.register', 'work.view_own', 'work_types.view', 'doors.lookup', 'finance.view_own'],
+        'master' => ['work.register', 'work.view_own', 'work_types.view', 'doors.lookup', 'finance.view_own', 'stats.view', 'reports.export_own'],
         'director' => [
             'executors.view', 'work.view_all',
             'work_types.view', 'work_types.view_all', 'work_types.manage', 'rates.manage',
