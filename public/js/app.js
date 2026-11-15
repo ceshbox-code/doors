@@ -155,9 +155,34 @@ async function syncQueue(){
   }finally{state.busy=false;if(state.page==='queue')renderPage();if(state.page==='home')renderPage();}
 }
 async function renderHistory(el){
-  el.innerHTML=pageHead('История работ','Список зарегистрированных выполненных работ')+'<div id="history-list" class="list"><div class="muted">Загрузка…</div></div>';
-  try{const data=await api('/work-records?per_page=50');const rows=data.items||[];document.getElementById('history-list').innerHTML=rows.length?rows.map(recordHtml).join(''):'<div class="empty">Записей нет</div>';}
-  catch(e){document.getElementById('history-list').innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;}
+  const typeOptions=state.workTypes.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
+  el.innerHTML=pageHead('История работ','Поиск и фильтрация зарегистрированных работ')+`<form id="history-filter" class="panel"><div class="form-grid"><div class="field"><label for="history-door">Номер двери</label><input id="history-door" name="door_number" placeholder="D-000123"></div><div class="field"><label for="history-type">Вид работы</label><select id="history-type" name="work_type_id"><option value="">Все виды работ</option>${typeOptions}</select></div><div class="field"><label for="history-from">Дата с</label><input id="history-from" name="date_from" type="date"></div><div class="field"><label for="history-to">Дата по</label><input id="history-to" name="date_to" type="date"></div><div class="field"><label for="history-status">Состояние записи</label><select id="history-status" name="status"><option value="active">Действующие</option><option value="voided">Аннулированные</option><option value="all">Все</option></select></div></div><div class="actions"><button class="btn" type="submit">Применить фильтры</button><button class="btn ghost" type="reset">Сбросить</button></div></form><div id="history-summary" class="hint"></div><div id="history-list" class="list"><div class="muted">Загрузка…</div></div><div id="history-pages" class="actions"></div>`;
+  const form=document.getElementById('history-filter');
+  const list=document.getElementById('history-list');
+  const summary=document.getElementById('history-summary');
+  const pages=document.getElementById('history-pages');
+  const load=async(page=1)=>{
+    const params=new URLSearchParams({page:String(page),per_page:'50'});
+    for(const key of ['door_number','work_type_id','date_from','date_to','status']){
+      const value=String(form.elements[key].value||'').trim();
+      if(value)params.set(key,value);
+    }
+    list.innerHTML='<div class="muted">Загрузка…</div>';pages.innerHTML='';
+    try{
+      const data=await api('/work-records?'+params.toString());
+      const rows=data.items||[];
+      list.innerHTML=rows.length?rows.map(recordHtml).join(''):'<div class="empty">По заданным условиям записи не найдены</div>';
+      summary.textContent=`Найдено: ${data.total||0}. Страница ${data.page||page} из ${Math.max(1,Math.ceil((data.total||0)/(data.per_page||50)))}`;
+      const current=data.page||page,totalPages=Math.max(1,Math.ceil((data.total||0)/(data.per_page||50)));
+      if(current>1)pages.insertAdjacentHTML('beforeend','<button class="btn secondary" id="history-prev" type="button">← Назад</button>');
+      if(current<totalPages)pages.insertAdjacentHTML('beforeend','<button class="btn secondary" id="history-next" type="button">Далее →</button>');
+      document.getElementById('history-prev')?.addEventListener('click',()=>load(current-1));
+      document.getElementById('history-next')?.addEventListener('click',()=>load(current+1));
+    }catch(e){list.innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;summary.textContent='';}
+  };
+  form.addEventListener('submit',e=>{e.preventDefault();load(1);});
+  form.addEventListener('reset',()=>setTimeout(()=>load(1),0));
+  await load(1);
 }
 function recordHtml(r){return `<article class="record-card"><div class="record-main"><strong>${esc(r.work_type?.name||'Работа')} · ${esc(r.door?.number||'Без номера')}</strong><div class="record-meta"><span>Выполнено: ${date(r.completed_at)}</span><span>${esc(r.user?.full_name||'')}</span><span>${Number(r.photos_count||0)} фото</span></div><div class="hint">${r.completed_at_source==='device'?'Время выполнения с устройства':'Время выполнения по серверу'} · Получено сервером: ${date(r.received_at)}</div></div><div class="amount">${money(r.total_amount)}</div></article>`;}
 async function logout(){
