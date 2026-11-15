@@ -1,9 +1,9 @@
 # Система учёта дверей, выполненных работ и оплаты труда
 
-Реализация по ТЗ v2.0. Backend этапов 1–7 реализован; интерфейс PWA (этап 8) находится в отдельной ветке `feature/pwa-interface` и проходит CI-проверки.
+Реализация по ТЗ v2.0. Backend этапов 1–7 и интерфейс PWA (этап 8) находятся в этой ветке `feature/pwa-interface`. Перед переносом в `main` используется Draft PR.
 
 ## Стек
-PHP 8.0 + Apache (один контейнер `door-app`) · MariaDB 10.11 (InnoDB) · Docker Compose · PHPUnit 9.6.
+PHP 8.0 + Apache (контейнер `doors-app`) · MariaDB 10.11 (InnoDB) · Docker Compose · PHPUnit 9.6.
 HTTPS и внешний адрес обеспечивает обратный прокси DSM, отдельного nginx в проекте нет.
 
 ## Web-интерфейс и PWA (ветка feature/pwa-interface)
@@ -19,26 +19,39 @@ HTTPS и внешний адрес обеспечивает обратный п�
 
 Проверки ветки выполняются GitHub Actions: Composer validation, PHP lint, Node.js syntax check и PHPUnit.
 
-## Развёртывание на Synology (папка /volume1/docker/door)
+## Развёртывание на Synology
+
+Для существующей установки **не распаковывайте архив поверх проекта и не удаляйте `data/`**. Каталог `data/` содержит БД и пользовательские файлы.
+
+### Первичная установка
 ```bash
 ssh <логин>@<IP-NAS>
 sudo -i
-mkdir -p /volume1/docker/door && cd /volume1/docker/door
-# загрузите door-accounting-stage2.tar.gz в эту папку (File Station), затем:
-tar xzf door-accounting-stage2.tar.gz
+mkdir -p /volume1/docker/doors
+cd /volume1/docker/doors
+git clone -b feature/pwa-interface https://github.com/ceshbox-code/doors.git .
 cp .env.example .env
-DBP=$(openssl rand -hex 16); ROOTP=$(openssl rand -hex 16)
-sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=${DBP}|; s|^DB_ROOT_PASSWORD=.*|DB_ROOT_PASSWORD=${ROOTP}|; s|^DATA_DIR=.*|DATA_DIR=/volume1/docker/door/data|" .env
+DBP=$(openssl rand -hex 32)
+ROOTP=$(openssl rand -hex 32)
+sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=${DBP}|; s|^DB_ROOT_PASSWORD=.*|DB_ROOT_PASSWORD=${ROOTP}|" .env
 chmod 600 .env
 mkdir -p data/db data/storage/photos data/storage/exports data/storage/logs data/storage/backups data/storage/sessions
-chown -R 33:33 data/storage          # 33 = www-data в образе php:apache
-docker-compose up -d --build         # на DSM до 7.2 — docker-compose (v1); на новом Container Manager — docker compose
-docker compose exec door-app php bin/migrate.php
-docker compose exec door-app php bin/seed.php
-docker compose exec door-app php bin/create-owner.php admin "Фамилия Имя Отчество"
-curl -s http://localhost:8088/api/v1/health
+chown -R 33:33 data/storage
+docker-compose up -d --build
+docker-compose exec doors-app php bin/migrate.php
+docker-compose exec doors-app php bin/seed.php
+docker-compose exec doors-app php bin/create-owner.php admin "Фамилия Имя Отчество"
+curl -fsS http://localhost:8066/api/v1/health
 ```
-Порт на хосте задаётся `HTTP_PORT` в `.env`. HTTPS — через reverse proxy DSM (Панель управления → Портал для входа → Reverse Proxy → на `http://localhost:<HTTP_PORT>`).
+
+### Обновление существующей установки
+1. Сделайте резервную копию БД, `.env` и `data/storage`.
+2. Получите ветку `feature/pwa-interface` в существующем Git checkout. Не заменяйте `.env`, `data/db` и `data/storage`.
+3. Пересоберите только приложение: `docker-compose up -d --build doors-app`.
+4. Проверьте health endpoint: `curl -fsS http://localhost:<HTTP_PORT>/api/v1/health`.
+5. Только после успешной резервной копии и проверки health выполните миграции: `docker-compose exec doors-app php bin/migrate.php`.
+
+Порт по умолчанию — `8066`, задаётся переменной `HTTP_PORT` в `.env`. HTTPS обеспечивает reverse proxy DSM, направленный на `http://localhost:<HTTP_PORT>`.
 
 ## API (этапы 2–7)
 Все ответы: `{"success":true,"data":...}` или `{"success":false,"error":{"code","message"[,"details"]}}`.
@@ -123,14 +136,14 @@ Content-Type: multipart/form-data
 
 ## Сквозная проверка на сервере
 ```bash
-docker-compose exec -e SMOKE_OWNER=admin -e SMOKE_OWNER_PASSWORD='...' door-app php bin/smoke.php
-docker-compose exec -e SMOKE_CLEANUP=1 door-app php bin/smoke.php     # удалить тестовые данные smoke_*
+docker-compose exec -e SMOKE_OWNER=admin -e SMOKE_OWNER_PASSWORD='...' doors-app php bin/smoke.php
+docker-compose exec -e SMOKE_CLEANUP=1 doors-app php bin/smoke.php     # удалить тестовые данные smoke_*
 ```
 
 ## Тесты
 ```bash
-docker-compose exec -T -u root door-app composer install        # dev-зависимости (в образе их нет); выполняется один раз
-docker-compose exec -T -u www-data door-app vendor/bin/phpunit   # юнит-тесты
+docker-compose exec -T -u root doors-app composer install        # dev-зависимости (в образе их нет); выполняется один раз
+docker-compose exec -T -u www-data doors-app vendor/bin/phpunit   # юнит-тесты
 ```
 Тесты запускайте **от `www-data`**: от root они создают в `storage/` каталоги, недоступные веб-серверу (в том числе кэш PDF).
 Сквозная проверка на работающем сервере — `bin/smoke.php` (см. ниже).
@@ -140,7 +153,7 @@ docker-compose exec -T -u www-data door-app vendor/bin/phpunit   # юнит-те
 Менять уже применённые файлы нельзя — только добавлять новые.
 
 ## Зависимости
-PDF — mPDF, XLSX — PhpSpreadsheet; ставятся Composer при сборке образа (нужен доступ в интернет). Для воспроизводимых сборок после первой успешной можно сохранить `composer.lock`: `docker-compose exec -T door-app cat composer.lock > composer.lock` и положить в корень проекта.
+PDF — mPDF, XLSX — PhpSpreadsheet; ставятся Composer при сборке образа (нужен доступ в интернет). Для воспроизводимых сборок после первой успешной можно сохранить `composer.lock`: `docker-compose exec -T doors-app cat composer.lock > composer.lock` и положить в корень проекта.
 
 ## Этапы (ТЗ, раздел 20)
 1. ✅ Каркас  2. ✅ Авторизация и роли  3. ✅ Двери и работы  4. ✅ Фотоархив  5. ✅ Расценки (в объёме этапов 3 и 6)  6. ✅ Финансы  7. ✅ Статистика и отчёты  8. Тестирование и запуск
