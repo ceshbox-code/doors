@@ -5,6 +5,7 @@ on:
     branches:
       - feature/pwa-interface
       - fix/role-permissions
+      - fix/master-own-reports
   pull_request:
     branches:
       - main
