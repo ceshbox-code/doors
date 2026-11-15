@@ -65,6 +65,7 @@ final class WorkRecordService
      */
     public function register(array $actor, array $input, array $uploads, string $idemKey, string $ip): array
     {
+        $receivedAt = Dates::nowUtc();
         if (!IdempotencyService::validKey($idemKey)) {
             throw new ApiException('IDEMPOTENCY_KEY_INVALID', 'Заголовок Idempotency-Key обязателен: 8–100 символов (буквы, цифры, . _ : -)', 400);
         }
