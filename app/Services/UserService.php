@@ -51,6 +51,12 @@ final class UserService
         ];
     }
 
+    /** @return array{items:array<int,array{id:int,full_name:string,role:string}>} */
+    public function activeMasters(): array
+    {
+        return ['items' => $this->users->activeMasters()];
+    }
+
     public function get(int $id): array
     {
         return User::present($this->require($id));
