@@ -48,7 +48,7 @@ final class RateService
             if (!(int) $user['is_active']) {
                 throw new ApiException('USER_INACTIVE', 'Исполнитель деактивирован', 409);
             }
-            if (!in_array($user['role'], ['master', 'owner'], true)) {
+            if (!in_array($user['role'], ['master'], true)) {
                 throw new ApiException('INVALID_EXECUTOR', 'Расценки назначаются только исполнителям работ', 422);
             }
             if ($this->types->find($d['work_type_id']) === null) {
