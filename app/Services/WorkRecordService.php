@@ -86,10 +86,16 @@ final class WorkRecordService
         $prepared = $this->storage->prepare($uploads);
         $shas = array_column($prepared, 'sha256');
         sort($shas);
-        $hash = IdempotencyService::hash([
+        $hashData = [
             'executor' => $executorId, 'work_type_id' => $d['work_type_id'], 'door_number' => $d['door_number'],
             'new_door' => $d['new_door'], 'quantity' => $d['quantity'], 'comment' => $d['comment'], 'photos' => $shas,
-        ]);
+        ];
+        if ($d['completed_at'] !== null) {
+            $hashData['completed_at'] = $d['completed_at'];
+        }
+        $hash = IdempotencyService::hash($hashData);
+        $completedAt = $d['completed_at'] ?? Dates::nowUtc();
+        $receivedAt = Dates::nowUtc();
         $done = $this->idem->peek($actorId, $idemKey, 'work_record.create', $hash);
         if ($done !== null) {
             return ['status' => (int) $done['status'], 'data' => $done['data'], 'replayed' => true];
@@ -99,7 +105,7 @@ final class WorkRecordService
         $staged = $this->storage->stage($prepared);
         $placed = [];
         try {
-            return Tx::run(function () use ($actor, $actorId, $executorId, $d, $idemKey, $hash, $ip, $staged, &$placed) {
+            return Tx::run(function () use ($actor, $actorId, $executorId, $d, $completedAt, $receivedAt, $idemKey, $hash, $ip, $staged, &$placed) {
                 $this->storage->discard($placed);              // следы прошлой попытки при повторе после взаимной блокировки
                 $placed = [];
 
@@ -147,8 +153,7 @@ final class WorkRecordService
                 }
 
                 // 6–7. Расценка исполнителя на момент выполнения и сумма начисления
-                $now = Dates::nowUtc();
-                $rate = $this->rates->activeAt($executorId, (int) $type['id'], $now);
+                $rate = $this->rates->activeAt($executorId, (int) $type['id'], $completedAt);
                 if ($rate === null) {
                     throw new ApiException('RATE_NOT_FOUND', 'Для исполнителя не назначена расценка на этот вид работы. Администратору нужно сначала назначить тариф.', 422);
                 }
@@ -160,7 +165,8 @@ final class WorkRecordService
                         'work_type_id' => (int) $type['id'], 'door_id' => $doorId, 'user_id' => $executorId,
                         'rate_id' => (int) $rate['id'], 'quantity' => $d['quantity'], 'unit' => $type['unit'],
                         'unit_price' => $rate['unit_price'], 'total_amount' => $total,
-                        'allow_unique_per_door' => $unique ? 1 : 0, 'completed_at' => $now,
+                        'allow_unique_per_door' => $unique ? 1 : 0, 'completed_at' => $completedAt,
+                        'received_at' => $receivedAt, 'completed_at_source' => $d['completed_at'] === null ? 'server' : 'device',
                         'created_by' => $actorId, 'comment' => $d['comment'],
                     ]);
                 } catch (PDOException $e) {
