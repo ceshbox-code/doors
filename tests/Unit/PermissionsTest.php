@@ -12,6 +12,7 @@ final class PermissionsTest extends TestCase
     {
         $this->assertTrue(Permissions::can('owner', 'users.manage'));
         $this->assertTrue(Permissions::can('owner', 'stats.view'));
+        $this->assertFalse(Permissions::can('owner', 'reports.export_own'));
         foreach ([
             'executors.view', 'work.register', 'work.view_own', 'work.view_all',
             'work_types.view', 'work_types.manage', 'rates.manage',
