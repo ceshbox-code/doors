@@ -24,7 +24,12 @@ final class Dates
             return null;
         }
         try {
-            return (new \DateTimeImmutable($v))->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+            $date = new \DateTimeImmutable($v);
+            $errors = \DateTimeImmutable::getLastErrors();
+            if ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0)) {
+                return null;
+            }
+            return $date->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s');
         } catch (\Exception) {
             return null;
         }

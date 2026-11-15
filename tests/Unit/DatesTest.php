@@ -15,6 +15,7 @@ final class DatesTest extends TestCase
         $this->assertSame('2026-12-01 10:30:00', Dates::parseToUtc('2026-12-01 10:30:00Z'));
         $this->assertNull(Dates::parseToUtc('2026-12-01T00:00:00'));      // без часового пояса — отказ
         $this->assertNull(Dates::parseToUtc('вчера'));
+        $this->assertNull(Dates::parseToUtc('2026-02-30T14:30:00+03:00')); // несуществующая дата
     }
 
     public function testLocalDayToUtc(): void
