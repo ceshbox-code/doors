@@ -19,6 +19,17 @@ async function api(path, options={}) {
   return json.data;
 }
 
+async function downloadFile(path){
+  const response=await fetch(API+path,{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok){let payload={};try{payload=await response.json();}catch(_){}throw new Error(payload.error?.message||'Не удалось сформировать файл');}
+  const blob=await response.blob();
+  const disposition=response.headers.get('Content-Disposition')||'';
+  const match=disposition.match(/filename="([^"]+)"/i);
+  const filename=match?.[1]||'door-report';
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
 function openDb(){
   return new Promise((resolve,reject)=>{
     const req=indexedDB.open(DB_NAME,1);
@@ -211,13 +222,22 @@ async function renderFinance(el){
   const canManage=state.user.role==='owner';
   let paymentIdemKey=crypto.randomUUID();
   let paymentPayloadSignature=null;
-  el.innerHTML=pageHead('Финансы',isAll?'Начисления, выплаты и задолженность':'Ваши начисления и выплаты')+`<form id="finance-filter" class="panel"><div class="form-grid"><div class="field"><label for="finance-from">Период с</label><input id="finance-from" name="date_from" type="date"></div><div class="field"><label for="finance-to">Период по</label><input id="finance-to" name="date_to" type="date"></div></div><div class="actions"><button class="btn" type="submit">Применить</button><button class="btn ghost" type="reset">Сбросить</button></div></form><div id="finance-summary" class="cards"></div><div id="finance-admin"></div><div class="panel"><h3>Начисления за выбранный период</h3><div id="accrual-list" class="list"><div class="muted">Загрузка…</div></div><div id="accrual-pages" class="actions"></div></div><div class="panel"><h3>Выплаты</h3><div id="payment-list" class="list"><div class="muted">Загрузка…</div></div></div>`;
+  el.innerHTML=pageHead('Финансы',isAll?'Начисления, выплаты и задолженность':'Ваши начисления и выплаты')+`<form id="finance-filter" class="panel"><div class="form-grid"><div class="field"><label for="finance-from">Период с</label><input id="finance-from" name="date_from" type="date"></div><div class="field"><label for="finance-to">Период по</label><input id="finance-to" name="date_to" type="date"></div></div><div class="actions"><button class="btn" type="submit">Применить</button><button class="btn ghost" type="reset">Сбросить</button></div></form><div id="finance-summary" class="cards"></div><div id="report-panel"></div><div id="finance-admin"></div><div class="panel"><h3>Начисления за выбранный период</h3><div id="accrual-list" class="list"><div class="muted">Загрузка…</div></div><div id="accrual-pages" class="actions"></div></div><div class="panel"><h3>Выплаты</h3><div id="payment-list" class="list"><div class="muted">Загрузка…</div></div></div>`;
   const form=document.getElementById('finance-filter');
   const summary=document.getElementById('finance-summary');
   const list=document.getElementById('accrual-list');
   const pages=document.getElementById('accrual-pages');
   const paymentList=document.getElementById('payment-list');
   const admin=document.getElementById('finance-admin');
+  const reportPanel=document.getElementById('report-panel');
+  if(isAll){
+    reportPanel.innerHTML=`<div class="panel"><h3>Отчёты и экспорт</h3><div class="actions"><button class="btn secondary" data-pdf="production">PDF: производство</button><button class="btn secondary" data-pdf="payments">PDF: выплаты</button><button class="btn secondary" data-pdf="finance">PDF: финансы</button><button class="btn secondary" data-pdf="photos">PDF: фотофиксация</button></div><div class="form-grid" style="margin-top:14px"><div class="field"><label for="export-dataset">Набор данных</label><select id="export-dataset"><option value="works">Выполненные работы</option><option value="payments">Выплаты</option><option value="balances">Финансовые остатки</option><option value="stats-users">Статистика по исполнителям</option><option value="stats-types">Статистика по видам работ</option><option value="stats-daily">Статистика по дням</option><option value="stats-doors">Статистика по дверям</option></select></div><div class="field"><label>Формат</label><div class="actions"><button class="btn" id="export-csv" type="button">CSV</button><button class="btn" id="export-xlsx" type="button">XLSX</button></div></div></div><div class="hint">Отчёты используют даты из фильтра выше. Файлы формируются сервером с учётом прав доступа.</div></div>`;
+    const reportParams=()=>{const p=new URLSearchParams();for(const k of ['date_from','date_to'])if(form.elements[k].value)p.set(k,form.elements[k].value);return p.toString();};
+    reportPanel.querySelectorAll('[data-pdf]').forEach(button=>button.addEventListener('click',async()=>{button.disabled=true;try{const q=reportParams();await downloadFile('/export/pdf/'+button.dataset.pdf+(q?'?'+q:''));}catch(e){toast(e.message);}finally{button.disabled=false;}}));
+    const exportData=async format=>{const q=new URLSearchParams({dataset:document.getElementById('export-dataset').value});for(const k of ['date_from','date_to'])if(form.elements[k].value)q.set(k,form.elements[k].value);const button=document.getElementById(format==='csv'?'export-csv':'export-xlsx');button.disabled=true;try{await downloadFile('/export/'+format+'?'+q.toString());}catch(e){toast(e.message);}finally{button.disabled=false;}};
+    document.getElementById('export-csv').addEventListener('click',()=>exportData('csv'));
+    document.getElementById('export-xlsx').addEventListener('click',()=>exportData('xlsx'));
+  }
   const load=async(page=1)=>{
     const params=new URLSearchParams({page:String(page),per_page:'50',payment_state:'all',status:'active'});
     for(const key of ['date_from','date_to']){const value=form.elements[key].value;if(value)params.set(key,value);}
