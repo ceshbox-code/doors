@@ -123,11 +123,11 @@ return static function (Router $router): void {
     $router->get('/api/v1/stats/doors',       Guard::auth([$stat, 'doors'],     'stats.view_details'));
 
     // 12.10 Экспорт. Расчётный лист доступен и исполнителю (только свой подтверждённый — проверка в сервисе)
-    $router->get('/api/v1/export/pdf/production',   Guard::auth([$exp, 'production'], 'reports.export'));
-    $router->get('/api/v1/export/pdf/payments',     Guard::auth([$exp, 'payments'],   'reports.export'));
-    $router->get('/api/v1/export/pdf/finance',      Guard::auth([$exp, 'finance'],    'reports.export'));
-    $router->get('/api/v1/export/pdf/photos',       Guard::auth([$exp, 'photos'],     'reports.export'));
+    $router->get('/api/v1/export/pdf/production',   Guard::auth([$exp, 'production'], ['reports.export', 'reports.export_own']));
+    $router->get('/api/v1/export/pdf/payments',     Guard::auth([$exp, 'payments'],   ['reports.export', 'reports.export_own']));
+    $router->get('/api/v1/export/pdf/finance',      Guard::auth([$exp, 'finance'],    ['reports.export', 'reports.export_own']));
+    $router->get('/api/v1/export/pdf/photos',       Guard::auth([$exp, 'photos'],     ['reports.export', 'reports.export_own']));
     $router->get('/api/v1/export/pdf/payroll/{id}', Guard::auth([$exp, 'payslip'],    ['reports.export', 'finance.view_own']));
-    $router->get('/api/v1/export/csv',              Guard::auth([$exp, 'csv'],        'reports.export'));
-    $router->get('/api/v1/export/xlsx',             Guard::auth([$exp, 'xlsx'],       'reports.export'));
+    $router->get('/api/v1/export/csv',              Guard::auth([$exp, 'csv'],        ['reports.export', 'reports.export_own']));
+    $router->get('/api/v1/export/xlsx',             Guard::auth([$exp, 'xlsx'],       ['reports.export', 'reports.export_own']));
 };
