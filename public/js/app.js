@@ -70,7 +70,7 @@ function renderLogin(error=''){
   });
 }
 
-const navItems=[['home','Обзор','⌂'],['new','Новая работа','＋'],['queue','Офлайн-очередь','⇧'],['history','История','▤']];
+const navItems=[['home','Обзор','⌂'],['new','Новая работа','＋'],['queue','Офлайн-очередь','⇧'],['history','История','▤'],['finance','Финансы','₽']];
 function render(){
   const role=state.user?.role||'';
   const items=navItems.filter(([id])=>id!=='new'||['owner','master'].includes(role));
@@ -82,7 +82,7 @@ function render(){
 }
 function navButton(id,label){return `<button data-nav="${id}" class="${state.page===id?'active':''}">${label}</button>`;}
 function roleLabel(role){return ({owner:'Администратор',master:'Мастер',director:'Директор'})[role]||'Пользователь';}
-function pageTitle(){return ({home:'Обзор',new:'Регистрация работы',queue:'Офлайн-очередь',history:'История работ'})[state.page]||'Учёт дверей';}
+function pageTitle(){return ({home:'Обзор',new:'Регистрация работы',queue:'Офлайн-очередь',history:'История работ',finance:'Финансы'})[state.page]||'Учёт дверей';}
 function go(page){state.page=page;render();}
 function pageHead(title,sub,button=''){return `<div class="page-head"><div><h2>${title}</h2><p>${sub}</p></div>${button}</div>`;}
 
@@ -91,6 +91,7 @@ async function renderPage(){
   if(state.page==='new'){renderNew(el);return;}
   if(state.page==='queue'){await renderQueue(el);return;}
   if(state.page==='history'){await renderHistory(el);return;}
+  if(state.page==='finance'){await renderFinance(el);return;}
   await renderHome(el);
 }
 async function renderHome(el){
@@ -179,6 +180,39 @@ async function renderHistory(el){
       document.getElementById('history-prev')?.addEventListener('click',()=>load(current-1));
       document.getElementById('history-next')?.addEventListener('click',()=>load(current+1));
     }catch(e){list.innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;summary.textContent='';}
+  };
+  form.addEventListener('submit',e=>{e.preventDefault();load(1);});
+  form.addEventListener('reset',()=>setTimeout(()=>load(1),0));
+  await load(1);
+}
+async function renderFinance(el){
+  const isAll=['owner','director'].includes(state.user.role);
+  el.innerHTML=pageHead('Финансы',isAll?'Начисления, выплаты и задолженность':'Ваши начисления и выплаты')+`<form id="finance-filter" class="panel"><div class="form-grid"><div class="field"><label for="finance-from">Период с</label><input id="finance-from" name="date_from" type="date"></div><div class="field"><label for="finance-to">Период по</label><input id="finance-to" name="date_to" type="date"></div></div><div class="actions"><button class="btn" type="submit">Применить</button><button class="btn ghost" type="reset">Сбросить</button></div></form><div id="finance-summary" class="cards"></div><div class="panel"><h3>Начисления</h3><div id="accrual-list" class="list"><div class="muted">Загрузка…</div></div><div id="accrual-pages" class="actions"></div></div>`;
+  const form=document.getElementById('finance-filter');
+  const summary=document.getElementById('finance-summary');
+  const list=document.getElementById('accrual-list');
+  const pages=document.getElementById('accrual-pages');
+  const load=async(page=1)=>{
+    const params=new URLSearchParams({page:String(page),per_page:'50',payment_state:'all',status:'active'});
+    for(const key of ['date_from','date_to']){const value=form.elements[key].value;if(value)params.set(key,value);}
+    summary.innerHTML='';list.innerHTML='<div class="muted">Загрузка…</div>';pages.innerHTML='';
+    try{
+      const tasks=[api('/finance/accruals?'+params.toString())];
+      if(isAll)tasks.push(api('/finance/summary?'+params.toString()));
+      else tasks.push(api('/finance/users/'+encodeURIComponent(state.user.id)+'?'+params.toString()));
+      const [accruals,finance]=await Promise.all(tasks);
+      const totals=isAll?finance.totals:finance.totals;
+      summary.innerHTML=[
+        ['Начислено',totals.accrued],['Выплачено',totals.paid],['Остаток',totals.balance??totals.debt_total],['Переплата',totals.overpayment??totals.overpayment_total]
+      ].map(([label,value])=>`<div class="stat-card"><span>${label}</span><strong>${money(value)}</strong></div>`).join('');
+      const rows=accruals.items||[];
+      list.innerHTML=rows.length?rows.map(a=>`<article class="record-card"><div class="record-main"><strong>${esc(a.work_type?.name||'Работа')} · ${esc(a.door_number||'Без номера')}</strong><div class="record-meta"><span>${date(a.completed_at)}</span><span>${esc(a.user?.full_name||'')}</span><span>${esc(a.quantity)} ${esc(a.unit)}</span><span class="pill ${a.payment_state==='paid'?'synced':'pending'}">${({unpaid:'Не выплачено',partial:'Частично',paid:'Выплачено',voided:'Аннулировано'})[a.payment_state]||a.payment_state}</span></div><div class="hint">Начислено: ${money(a.total_amount)} · Выплачено: ${money(a.paid)} · Остаток: ${money(a.outstanding)}</div></div></article>`).join(''):'<div class="empty">Начислений за выбранный период нет</div>';
+      const current=accruals.page||page,totalPages=Math.max(1,Math.ceil((accruals.total||0)/(accruals.per_page||50)));
+      if(current>1)pages.insertAdjacentHTML('beforeend','<button class="btn secondary" id="accrual-prev" type="button">← Назад</button>');
+      if(current<totalPages)pages.insertAdjacentHTML('beforeend','<button class="btn secondary" id="accrual-next" type="button">Далее →</button>');
+      document.getElementById('accrual-prev')?.addEventListener('click',()=>load(current-1));
+      document.getElementById('accrual-next')?.addEventListener('click',()=>load(current+1));
+    }catch(e){list.innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;summary.innerHTML='';}
   };
   form.addEventListener('submit',e=>{e.preventDefault();load(1);});
   form.addEventListener('reset',()=>setTimeout(()=>load(1),0));
