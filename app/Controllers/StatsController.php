@@ -18,7 +18,11 @@ final class StatsController extends BaseController
 
     public function summary(Request $r): Response
     {
-        $data = $this->stats->summary($r->query);
+        $query = $r->query;
+        if (($r->user['role'] ?? '') === 'owner') {
+            unset($query['user_id']);
+        }
+        $data = $this->stats->summary($query);
         if (($r->user['role'] ?? '') === 'owner') {
             unset($data['money']);
         }
@@ -27,7 +31,11 @@ final class StatsController extends BaseController
 
     public function daily(Request $r): Response
     {
-        $data = $this->stats->daily($r->query);
+        $query = $r->query;
+        if (($r->user['role'] ?? '') === 'owner') {
+            unset($query['user_id']);
+        }
+        $data = $this->stats->daily($query);
         if (($r->user['role'] ?? '') === 'owner') {
             unset($data['totals']['amount']);
             foreach ($data['items'] as &$item) {
@@ -40,7 +48,11 @@ final class StatsController extends BaseController
 
     public function workTypes(Request $r): Response
     {
-        $data = $this->stats->workTypes($r->query);
+        $query = $r->query;
+        if (($r->user['role'] ?? '') === 'owner') {
+            unset($query['user_id']);
+        }
+        $data = $this->stats->workTypes($query);
         if (($r->user['role'] ?? '') === 'owner') {
             unset($data['totals']['amount']);
             foreach ($data['items'] as &$item) {
