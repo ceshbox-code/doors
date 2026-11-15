@@ -71,7 +71,7 @@ function renderLogin(error=''){
   });
 }
 
-const navItems=[['home','Обзор','⌂'],['new','Новая работа','＋'],['queue','Офлайн-очередь','⇧'],['history','История','▤'],['finance','Финансы','₽']];
+const navItems=[['home','Обзор','⌂'],['new','Новая работа','＋'],['queue','Офлайн-очередь','⇧'],['history','История','▤'],['doors','Двери','▣'],['finance','Финансы','₽']];
 function render(){
   const role=state.user?.role||'';
   const items=navItems.filter(([id])=>id!=='new'||['owner','master'].includes(role));
@@ -83,7 +83,7 @@ function render(){
 }
 function navButton(id,label){return `<button data-nav="${id}" class="${state.page===id?'active':''}">${label}</button>`;}
 function roleLabel(role){return ({owner:'Администратор',master:'Мастер',director:'Директор'})[role]||'Пользователь';}
-function pageTitle(){return ({home:'Обзор',new:'Регистрация работы',queue:'Офлайн-очередь',history:'История работ',finance:'Финансы'})[state.page]||'Учёт дверей';}
+function pageTitle(){return ({home:'Обзор',new:'Регистрация работы',queue:'Офлайн-очередь',history:'История работ',doors:'Двери',finance:'Финансы'})[state.page]||'Учёт дверей';}
 function go(page){state.page=page;render();}
 function pageHead(title,sub,button=''){return `<div class="page-head"><div><h2>${title}</h2><p>${sub}</p></div>${button}</div>`;}
 
@@ -92,6 +92,7 @@ async function renderPage(){
   if(state.page==='new'){renderNew(el);return;}
   if(state.page==='queue'){await renderQueue(el);return;}
   if(state.page==='history'){await renderHistory(el);return;}
+  if(state.page==='doors'){renderDoors(el);return;}
   if(state.page==='finance'){await renderFinance(el);return;}
   await renderHome(el);
 }
@@ -188,6 +189,22 @@ async function renderHistory(el){
   form.addEventListener('submit',e=>{e.preventDefault();load(1);});
   form.addEventListener('reset',()=>setTimeout(()=>load(1),0));
   await load(1);
+}
+function renderDoors(el){
+  el.innerHTML=pageHead('Двери','Поиск двери по номеру и просмотр истории работ')+`<form id="door-lookup" class="panel"><div class="form-grid"><div class="field"><label for="door-lookup-number">Номер двери</label><input id="door-lookup-number" name="number" placeholder="D-000123" pattern="D-[0-9]{6,12}" required></div></div><button class="btn" type="submit">Найти дверь</button></form><div id="door-result"></div>`;
+  const form=document.getElementById('door-lookup');
+  const result=document.getElementById('door-result');
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();const number=String(new FormData(form).get('number')||'').trim().toUpperCase();
+    if(!/^D-\d{6,12}$/.test(number)){result.innerHTML='<div class="notice warn">Номер должен иметь формат D-000123.</div>';return;}
+    result.innerHTML='<div class="muted">Поиск…</div>';
+    try{
+      const door=await api('/doors/number/'+encodeURIComponent(number));
+      const history=door.history||[];
+      const types=door.registered_work_types||[];
+      result.innerHTML=`<div class="panel"><div class="page-head"><div><h2>${esc(door.number)}</h2><p>Создана: ${date(door.created_at)}</p></div><span class="pill">${door.status==='active'?'Активна':esc(door.status||'Дверь')}</span></div><h3>Виды работ</h3><div class="record-meta">${(history.length?[...new Map(history.map(r=>[r.work_type.id,r.work_type.name])).entries()].map(x=>x[1]):types.map(t=>t.name)).map(n=>`<span class="pill">${esc(n)}</span>`).join('')||'Нет зарегистрированных работ'}</div></div>${door.history!==undefined?`<div class="panel"><h3>История работ</h3><div class="list">${history.length?history.map(recordHtml).join(''):'<div class="empty">История работ пуста</div>'}</div></div>`:''}`;
+    }catch(err){result.innerHTML=`<div class="notice warn">${esc(err.message)}</div>`;}
+  });
 }
 async function renderFinance(el){
   const isAll=['owner','director'].includes(state.user.role);
