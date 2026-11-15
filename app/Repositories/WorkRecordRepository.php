@@ -8,7 +8,7 @@ use App\Core\Database;
 final class WorkRecordRepository
 {
     private const SELECT = 'SELECT wr.id, wr.work_type_id, wr.door_id, wr.user_id, wr.rate_id, wr.quantity, wr.unit,
-                                   wr.unit_price, wr.total_amount, wr.completed_at, wr.created_at, wr.created_by,
+                                   wr.unit_price, wr.total_amount, wr.completed_at, wr.received_at, wr.completed_at_source, wr.created_at, wr.created_by,
                                    wr.comment, wr.voided_at, wr.voided_by, wr.void_reason,
                                    (SELECT COUNT(*) FROM photos ph WHERE ph.work_record_id = wr.id AND ph.deleted_at IS NULL) AS photos_count,
                                    wt.name AS work_type_name, d.number AS door_number,
@@ -26,12 +26,12 @@ final class WorkRecordRepository
         $pdo->prepare(
             'INSERT INTO work_records
                 (work_type_id, door_id, user_id, rate_id, quantity, unit, unit_price, total_amount,
-                 allow_unique_per_door, completed_at, created_by, comment)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 allow_unique_per_door, completed_at, received_at, completed_at_source, created_by, comment)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         )->execute([
             $d['work_type_id'], $d['door_id'], $d['user_id'], $d['rate_id'], $d['quantity'], $d['unit'],
             $d['unit_price'], $d['total_amount'], $d['allow_unique_per_door'], $d['completed_at'],
-            $d['created_by'], $d['comment'],
+            $d['received_at'], $d['completed_at_source'], $d['created_by'], $d['comment'],
         ]);
         return (int) $pdo->lastInsertId();
     }

@@ -1,0 +1,45 @@
+name: DOOR CI
+
+on:
+  push:
+    branches:
+      - feature/pwa-interface
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.0'
+          extensions: bcmath, gd, intl, mbstring, pdo_mysql, zip, fileinfo
+          coverage: none
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate Composer configuration
+        run: composer validate --no-check-publish
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Check PHP syntax
+        run: find app bin config public tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check public/js/app.js
+          node --check public/sw.js
+
+      - name: Run PHPUnit
+        run: composer test
