@@ -8,83 +8,61 @@ use PHPUnit\Framework\TestCase;
 
 final class PermissionsTest extends TestCase
 {
-    public function testOwnerHasEverything(): void
+    public function testAdministratorCanOnlyManageUsersAndViewAggregateStats(): void
     {
-        foreach (Permissions::ALL as $p) {
-            $this->assertTrue(Permissions::can('owner', $p), $p);
+        $this->assertTrue(Permissions::can('owner', 'users.manage'));
+        $this->assertTrue(Permissions::can('owner', 'stats.view'));
+        foreach ([
+            'executors.view', 'work.register', 'work.view_own', 'work.view_all',
+            'work_types.view', 'work_types.manage', 'rates.manage',
+            'doors.lookup', 'doors.view', 'photos.view', 'photos.delete',
+            'finance.view_own', 'finance.view_all', 'finance.manage',
+            'stats.view_details', 'reports.export', 'work.void',
+        ] as $permission) {
+            $this->assertFalse(Permissions::can('owner', $permission), $permission);
         }
     }
 
-    public function testMasterCanRegisterButNotManageFinanceOrUsers(): void
+    public function testMasterCanRegisterAndViewOnlyOwnScope(): void
     {
-        $this->assertTrue(Permissions::can('master', 'work.register'));
-        $this->assertTrue(Permissions::can('master', 'finance.view_own'));
-        foreach (['users.manage', 'rates.manage', 'finance.manage', 'finance.view_all', 'work.view_all', 'work.void'] as $p) {
-            $this->assertFalse(Permissions::can('master', $p), $p);
+        foreach (['work.register', 'work.view_own', 'work_types.view', 'doors.lookup', 'finance.view_own'] as $permission) {
+            $this->assertTrue(Permissions::can('master', $permission), $permission);
+        }
+        foreach ([
+            'users.manage', 'executors.view', 'rates.manage', 'finance.manage',
+            'finance.view_all', 'work.view_all', 'work.void', 'stats.view',
+            'stats.view_details', 'reports.export', 'photos.view', 'photos.delete',
+        ] as $permission) {
+            $this->assertFalse(Permissions::can('master', $permission), $permission);
         }
     }
 
-    public function testDirectorViewsAndExportsButChangesNothing(): void
+    public function testDirectorHasProductionAndFinancialControlButNoUserAdministration(): void
     {
-        foreach (['stats.view', 'reports.export', 'finance.view_all', 'photos.view', 'work.view_all'] as $p) {
-            $this->assertTrue(Permissions::can('director', $p), $p);
+        foreach ([
+            'executors.view', 'work.view_all', 'work_types.view', 'work_types.view_all',
+            'work_types.manage', 'rates.manage', 'doors.view', 'doors.lookup',
+            'photos.view', 'photos.delete', 'finance.view_all', 'finance.manage',
+            'stats.view', 'stats.view_details', 'reports.export', 'work.void',
+        ] as $permission) {
+            $this->assertTrue(Permissions::can('director', $permission), $permission);
         }
-        foreach (['work.register', 'rates.manage', 'finance.manage', 'users.manage', 'work.void'] as $p) {
-            $this->assertFalse(Permissions::can('director', $p), $p);
+        foreach (['users.manage', 'work.register', 'work.register_for_others', 'finance.view_own'] as $permission) {
+            $this->assertFalse(Permissions::can('director', $permission), $permission);
         }
     }
 
-    public function testUnknownRoleHasNothing(): void
+    public function testUnknownRoleHasNoPermissions(): void
     {
         $this->assertSame([], Permissions::forRole('hacker'));
     }
 
     public function testMatrixOnlyUsesKnownPermissions(): void
     {
-        foreach (['master', 'director'] as $role) {
-            foreach (Permissions::forRole($role) as $p) {
-                $this->assertContains($p, Permissions::ALL, "{$role}: {$p}");
+        foreach (['owner', 'master', 'director'] as $role) {
+            foreach (Permissions::forRole($role) as $permission) {
+                $this->assertContains($permission, Permissions::ALL, "{$role}: {$permission}");
             }
         }
-    }
-
-    public function testWorkTypeVisibilityAndProxyRegistration(): void
-    {
-        $this->assertTrue(Permissions::can('master', 'work_types.view'));
-        $this->assertFalse(Permissions::can('master', 'work_types.view_all'));
-        $this->assertFalse(Permissions::can('master', 'work_types.manage'));
-        $this->assertTrue(Permissions::can('director', 'work_types.view_all'));
-        $this->assertTrue(Permissions::can('owner', 'work.register_for_others'));
-        $this->assertFalse(Permissions::can('master', 'work.register_for_others'));
-        $this->assertFalse(Permissions::can('director', 'work.register'));
-    }
-
-    public function testPhotoPermissions(): void
-    {
-        $this->assertTrue(Permissions::can('owner', 'photos.delete'));
-        $this->assertFalse(Permissions::can('director', 'photos.delete'));
-        $this->assertFalse(Permissions::can('master', 'photos.delete'));
-        $this->assertTrue(Permissions::can('director', 'photos.view'));
-        $this->assertFalse(Permissions::can('master', 'photos.view'));       // мастер видит только свои — по владельцу записи
-    }
-
-    public function testFinanceMatrix(): void
-    {
-        $this->assertTrue(Permissions::can('owner', 'finance.manage'));
-        $this->assertTrue(Permissions::can('director', 'finance.view_all'));
-        $this->assertFalse(Permissions::can('director', 'finance.manage'));
-        $this->assertTrue(Permissions::can('master', 'finance.view_own'));
-        $this->assertFalse(Permissions::can('master', 'finance.view_all'));
-        $this->assertFalse(Permissions::can('master', 'finance.manage'));
-    }
-
-    public function testStatsAndReportsAccess(): void
-    {
-        foreach (['owner', 'director'] as $role) {
-            $this->assertTrue(Permissions::can($role, 'stats.view'), $role);
-            $this->assertTrue(Permissions::can($role, 'reports.export'), $role);
-        }
-        $this->assertFalse(Permissions::can('master', 'stats.view'));
-        $this->assertFalse(Permissions::can('master', 'reports.export'));
     }
 }
