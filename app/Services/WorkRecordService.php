@@ -123,7 +123,7 @@ final class WorkRecordService
                     throw new ApiException('WORK_TYPE_INACTIVE', 'Этот вид работы отключён', 409);
                 }
                 $executor = $this->users->find($executorId);
-                if ($executor === null || !(int) $executor['is_active'] || !in_array($executor['role'], ['master', 'owner'], true)) {
+                if ($executor === null || !(int) $executor['is_active'] || !in_array($executor['role'], ['master'], true)) {
                     throw new ApiException('INVALID_EXECUTOR', 'Исполнитель не найден, деактивирован или не может выполнять работы', 422);
                 }
 
