@@ -70,7 +70,7 @@ jobs:
         run: |
           mkdir -p /tmp/door-migrations-pre018
           find database/migrations -maxdepth 1 -type f -name '*.sql' ! -name '018_work_record_received_at.sql' -exec cp {} /tmp/door-migrations-pre018/ \;
-          php -r 'require "vendor/autoload.php"; $applied=(new App\Core\\Migrator(App\Core\\Database::pdo(), "/tmp/door-migrations-pre018"))->run(); echo "Applied pre-018 migrations: ".count($applied)."\n";'
+          php -r 'require "vendor/autoload.php"; $applied=(new App\Core\Migrator(App\Core\Database::pdo(), "/tmp/door-migrations-pre018"))->run(); echo "Applied pre-018 migrations: ".count($applied)."\n";'
           php bin/seed.php
           php <<'PHP'
           <?php
