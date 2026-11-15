@@ -1,1 +1,0 @@
-GitHub repository automation configuration.
