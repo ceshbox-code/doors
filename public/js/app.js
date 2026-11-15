@@ -48,6 +48,7 @@ const metaPut=(key,value)=>dbAction('meta','readwrite',s=>s.put({key,value}));
 const metaGet=key=>dbAction('meta','readonly',s=>s.get(key));
 
 async function loadWorkTypes(){
+  if(!state.user || !['master','director'].includes(state.user.role)){state.workTypes=[];return;}
   try{
     const data=await api('/work-types');
     const list=Array.isArray(data)?data:(data.items||[]);
@@ -90,10 +91,13 @@ function renderLogin(error=''){
   });
 }
 
-const navItems=[['home','Обзор','⌂'],['new','Новая работа','＋'],['queue','Офлайн-очередь','⇧'],['history','История','▤'],['doors','Двери','▣'],['stats','Статистика','▥'],['finance','Финансы','₽'],['settings','Настройки','⚙']];
+const navItems=[['home','Обзор','⌂'],['new','Новая работа','＋'],['queue','Офлайн-очередь','⇧'],['history','История','▤'],['doors','Двери','▣'],['stats','Статистика','▥'],['finance','Финансы','₽'],['work-management','Виды работ и тарифы','⚒'],['settings','Пользователи','⚙']];
+const rolePages={owner:['home','stats','settings'],master:['home','new','queue','history','doors','finance'],director:['home','history','doors','stats','finance','work-management']};
+function canOpenPage(page){return (rolePages[state.user?.role]||[]).includes(page);}
 function render(){
   const role=state.user?.role||'';
-  const items=navItems.filter(([id])=>(id!=='new'||['owner','master'].includes(role))&&(id!=='stats'||['owner','director'].includes(role))&&(id!=='settings'||role==='owner'));
+  if(!canOpenPage(state.page))state.page='home';
+  const items=navItems.filter(([id])=>canOpenPage(id));
   app.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">Д</span><div><strong>Учёт дверей</strong><small>Производственный учёт</small></div></div><nav class="nav">${items.map(([id,label])=>navButton(id,label)).join('')}</nav><div class="sidebar-bottom"><div>${esc(state.user.full_name||state.user.username||'Пользователь')}</div><div>${esc(roleLabel(role))}</div><button class="nav-button" data-action="logout" style="margin-top:14px;background:transparent;border:0;color:#d9e5eb;padding:8px">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><h1>${pageTitle()}</h1><div class="user-chip">${esc(state.user.full_name||'')} · ${esc(roleLabel(role))}</div><div class="connection"><span class="dot ${state.online?'':'offline'}"></span>${state.online?'В сети':'Нет сети'}</div></header><section class="content" id="page-content"></section></main></div><nav class="mobile-nav">${items.map(([id,label,icon])=>`<button data-page="${id}" class="${state.page===id?'active':''}"><span class="nav-icon">${icon}</span><span>${label}</span></button>`).join('')}</nav>`;
   app.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.page)));
   app.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.nav)));
@@ -102,26 +106,38 @@ function render(){
 }
 function navButton(id,label){return `<button data-nav="${id}" class="${state.page===id?'active':''}">${label}</button>`;}
 function roleLabel(role){return ({owner:'Администратор',master:'Мастер',director:'Директор'})[role]||'Пользователь';}
-function pageTitle(){return ({home:'Обзор',new:'Регистрация работы',queue:'Офлайн-очередь',history:'История работ',doors:'Двери',stats:'Статистика',finance:'Финансы',settings:'Настройки'})[state.page]||'Учёт дверей';}
-function go(page){state.page=page;render();}
+function pageTitle(){return ({home:'Обзор',new:'Регистрация работы',queue:'Офлайн-очередь',history:'История работ',doors:'Двери',stats:'Статистика',finance:'Финансы','work-management':'Виды работ и тарифы',settings:'Пользователи'})[state.page]||'Учёт дверей';}
+function go(page){if(!canOpenPage(page))return;state.page=page;render();}
 function pageHead(title,sub,button=''){return `<div class="page-head"><div><h2>${title}</h2><p>${sub}</p></div>${button}</div>`;}
 
 async function renderPage(){
   const el=document.getElementById('page-content');if(!el)return;
+  if(!canOpenPage(state.page))state.page='home';
   if(state.page==='new'){renderNew(el);return;}
   if(state.page==='queue'){await renderQueue(el);return;}
   if(state.page==='history'){await renderHistory(el);return;}
   if(state.page==='doors'){renderDoors(el);return;}
   if(state.page==='stats'){await renderStats(el);return;}
   if(state.page==='finance'){await renderFinance(el);return;}
+  if(state.page==='work-management'){await renderWorkManagement(el);return;}
   if(state.page==='settings'){await renderSettings(el);return;}
   await renderHome(el);
 }
 async function renderHome(el){
-  el.innerHTML=pageHead('Рабочий обзор','Состояние учёта выполненных работ')+`<div class="cards"><div class="stat-card"><span>Ожидают отправки</span><strong id="pending-count">…</strong></div><div class="stat-card"><span>Подключение</span><strong style="font-size:20px">${state.online?'Онлайн':'Офлайн'}</strong></div><div class="stat-card"><span>Пользователь</span><strong style="font-size:18px">${esc(state.user.full_name||'')}</strong></div></div><div class="panel"><h3>Быстрые действия</h3><div class="actions">${['owner','master'].includes(state.user.role)?'<button class="btn" data-nav="new">＋ Зарегистрировать работу</button>':''}<button class="btn secondary" data-nav="queue">Открыть очередь</button><button class="btn secondary" data-nav="history">История работ</button></div></div><div class="panel"><h3>Последние работы</h3><div id="recent-list" class="list"><div class="muted">Загрузка…</div></div></div>`;
+  const role=state.user.role;
+  if(role==='owner'){
+    el.innerHTML=pageHead('Обзор','Общая статистика системы')+`<div class="cards" id="admin-overview"><div class="stat-card"><span>Дверей</span><strong>—</strong></div><div class="stat-card"><span>Операций</span><strong>—</strong></div><div class="stat-card"><span>Ремонтов</span><strong>—</strong></div><div class="stat-card"><span>Упаковок</span><strong>—</strong></div><div class="stat-card"><span>Дополнительных работ</span><strong>—</strong></div></div><div class="panel"><h3>Администрирование</h3><div class="actions"><button class="btn" data-nav="settings">Управление пользователями</button><button class="btn secondary" data-nav="stats">Общая статистика</button></div></div>`;
+    el.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.nav)));
+    try{const summary=await api('/stats/summary');const n=summary.counts||{};const vals=[n.doors,n.operations,n.repairs,n.packings,n.other_works];el.querySelectorAll('#admin-overview .stat-card strong').forEach((node,i)=>node.textContent=vals[i]??0);}
+    catch(e){el.insertAdjacentHTML('beforeend',`<div class="notice warn">${esc(e.message)}</div>`);}
+    return;
+  }
+  const isMaster=role==='master';
+  el.innerHTML=pageHead('Рабочий обзор','Состояние учёта выполненных работ')+`<div class="cards">${isMaster?'<div class="stat-card"><span>Ожидают отправки</span><strong id="pending-count">…</strong></div>':''}<div class="stat-card"><span>Подключение</span><strong style="font-size:20px">${state.online?'Онлайн':'Офлайн'}</strong></div><div class="stat-card"><span>Пользователь</span><strong style="font-size:18px">${esc(state.user.full_name||'')}</strong></div></div><div class="panel"><h3>Быстрые действия</h3><div class="actions">${isMaster?'<button class="btn" data-nav="new">＋ Зарегистрировать работу</button><button class="btn secondary" data-nav="queue">Открыть очередь</button>':''}<button class="btn secondary" data-nav="history">История работ</button>${role==='director'?'<button class="btn secondary" data-nav="work-management">Виды работ и тарифы</button><button class="btn secondary" data-nav="finance">Финансы и выплаты</button>':''}</div></div><div class="panel"><h3>Последние работы</h3><div id="recent-list" class="list"><div class="muted">Загрузка…</div></div></div>`;
   el.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.nav)));
-  const queue=await queueAll().catch(()=>[]);const pc=document.getElementById('pending-count');if(pc)pc.textContent=queue.length;
-  try{const data=await api('/work-records?per_page=5');const rows=data.items||[];const list=document.getElementById('recent-list');if(!list)return;list.innerHTML=rows.length?rows.map(recordHtml).join(''):'<div class="empty">Записей пока нет</div>';}catch(e){document.getElementById('recent-list').innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;}
+  if(isMaster){const queue=await queueAll().catch(()=>[]);const pc=el.querySelector('#pending-count');if(pc)pc.textContent=queue.filter(q=>Number(q.ownerUserId)===Number(state.user.id)).length;}
+  try{const data=await api('/work-records?per_page=5');const rows=data.items||[];const list=el.querySelector('#recent-list');if(list)list.innerHTML=rows.length?rows.map(recordHtml).join(''):'<div class="empty">Записей пока нет</div>';}
+  catch(e){const list=el.querySelector('#recent-list');if(list)list.innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;}
 }
 async function renderNew(el){
   if(!state.workTypes.length)await loadWorkTypes();
