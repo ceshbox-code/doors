@@ -140,7 +140,7 @@ async function renderNew(el){
     if(selectedType?.door_required&&!doorNumber&&fd.get('new_door')!=='on'){document.getElementById('form-error').textContent='Для выбранного вида работы необходимо указать дверь или создать новую.';return;}
     if(doorNumber&&!/^D-\d{6,12}$/i.test(doorNumber)){document.getElementById('form-error').textContent='Номер двери должен иметь формат D-000123.';return;}
     if(fd.get('new_door')==='on'&&doorNumber){document.getElementById('form-error').textContent='Укажите номер существующей двери или отметьте новую дверь.';return;}
-    const item={id:crypto.randomUUID(),idemKey:crypto.randomUUID(),createdLocal:new Date().toISOString(),status:'queued',data:{work_type_id:fd.get('work_type_id'),quantity:fd.get('quantity')||'1',door_number:String(fd.get('door_number')||'').trim(),new_door:fd.get('new_door')==='on'?'true':'false',comment:fd.get('comment').trim(),completed_at:completedDate.toISOString()},photos};
+    const item={id:crypto.randomUUID(),idemKey:crypto.randomUUID(),ownerUserId:Number(state.user.id),createdLocal:new Date().toISOString(),status:'queued',data:{work_type_id:fd.get('work_type_id'),quantity:fd.get('quantity')||'1',door_number:String(fd.get('door_number')||'').trim(),new_door:fd.get('new_door')==='on'?'true':'false',comment:fd.get('comment').trim(),completed_at:completedDate.toISOString()},photos};
     const btn=form.querySelector('button[type="submit"]');btn.disabled=true;btn.textContent='Сохранение…';
     try{await queuePut(item);form.reset();document.getElementById('file-list').textContent='Файлы не выбраны';toast('Работа сохранена в очереди устройства');if(state.online)await syncQueue();go('queue');}
     catch(err){document.getElementById('form-error').textContent='Не удалось сохранить локально: '+err.message;}
@@ -159,6 +159,7 @@ async function syncQueue(){
   state.busy=true;
   try{
     const rows=(await queueAll()).sort((a,b)=>a.createdLocal.localeCompare(b.createdLocal));
+    if(rows.some(item=>Number(item.ownerUserId)!==Number(state.user.id))){toast('В очереди есть работы другого пользователя. Войдите под исходной учётной записью для синхронизации.');return;}
     for(const item of rows){
       const body=new FormData();Object.entries(item.data).forEach(([k,v])=>body.append(k,v));
       item.photos.forEach((f,i)=>body.append('photos[]',f,f.name||('photo-'+i+'.jpg')));
@@ -330,61 +331,6 @@ async function renderFinance(el){
   form.addEventListener('submit',e=>{e.preventDefault();load(1);});
   form.addEventListener('reset',()=>setTimeout(()=>load(1),0));
   await Promise.all([load(1),loadAdmin()]);
-}
-
-async function renderDoors(el){
-  el.innerHTML=pageHead('Двери','Поиск дверей и просмотр истории выполненных работ')+`<form id="door-search" class="panel"><div class="form-grid"><div class="field span-2"><label for="door-query">Номер двери</label><input id="door-query" name="q" placeholder="Например, D-000123" autocomplete="off"></div></div><div class="actions"><button class="btn" type="submit">Найти</button><button class="btn secondary" type="button" id="doors-all">Все двери</button></div></form><div id="doors-list" class="list" style="margin-top:16px"></div>`;
-  const list=document.getElementById('doors-list');
-  const load=async(q='')=>{
-    list.innerHTML='<div class="muted">Загрузка…</div>';
-    try{
-      const data=await api('/doors?per_page=50'+(q?'&q='+encodeURIComponent(q):''));
-      const rows=data.items||[];
-      list.innerHTML=rows.length?rows.map(d=>`<button class="record-card door-open" data-door="${d.id}" style="width:100%;text-align:left"><div class="record-main"><strong>${esc(d.number)}</strong><div class="record-meta"><span>${date(d.created_at)}</span><span>${Number(d.works_count||0)} работ</span></div></div><span>›</span></button>`).join(''):'<div class="empty">Двери не найдены</div>';
-      list.querySelectorAll('[data-door]').forEach(b=>b.addEventListener('click',()=>renderDoorDetail(Number(b.dataset.door),el)));
-    }catch(e){list.innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;}
-  };
-  document.getElementById('door-search').addEventListener('submit',e=>{e.preventDefault();load(e.currentTarget.q.value.trim());});
-  document.getElementById('doors-all').addEventListener('click',()=>{document.getElementById('door-query').value='';load();});
-  load();
-}
-async function renderDoorDetail(id,el){
-  el.innerHTML=pageHead('Карточка двери','Загрузка данных…')+'<div class="muted">Загрузка истории…</div>';
-  try{
-    const d=await api('/doors/'+id);
-    el.innerHTML=pageHead('Дверь '+esc(d.number),'Карточка и история операций','<button class="btn secondary" id="back-doors">← К списку</button>')+`<div class="panel"><h3>Информация</h3><div class="record-meta"><span>Создана: ${date(d.created_at)}</span><span>Статус: ${d.is_active===false?'Неактивна':'Активна'}</span></div></div><div class="panel"><h3>История работ</h3><div class="list">${(d.history||[]).length?d.history.map(recordHtml).join(''):'<div class="empty">История пуста</div>'}</div></div>`;
-    document.getElementById('back-doors').addEventListener('click',()=>renderDoors(el));
-  }catch(e){el.innerHTML=pageHead('Ошибка','Не удалось открыть карточку')+`<div class="notice warn">${esc(e.message)}</div><button class="btn secondary" id="back-doors">К списку дверей</button>`;document.getElementById('back-doors').addEventListener('click',()=>renderDoors(el));}
-}
-async function renderFinance(el){
-  el.innerHTML=pageHead('Финансы','Начисления, выплаты и текущий остаток')+'<div class="muted">Загрузка…</div>';
-  try{
-    if(state.user.role==='master'){
-      const d=await api('/finance/users/'+state.user.id);
-      const t=d.totals||{};
-      el.innerHTML=pageHead('Мои начисления','Сводный финансовый баланс')+`<div class="cards"><div class="stat-card"><span>Начислено</span><strong>${money(t.accrued)}</strong></div><div class="stat-card"><span>Выплачено</span><strong>${money(t.paid)}</strong></div><div class="stat-card"><span>Остаток</span><strong>${money(t.balance)}</strong></div></div><div class="panel"><h3>К выплате</h3><p class="amount">${money(t.unpaid_accruals_total)}</p><p class="hint">Сумма начислений, ещё не распределённых по выплатам.</p></div>`;
-      return;
-    }
-    const [summary,balances]=await Promise.all([api('/finance/summary'),api('/finance/balances')]);
-    const t=summary.totals||{};
-    el.innerHTML=pageHead('Финансы','Сводный баланс по исполнителям')+`<div class="cards"><div class="stat-card"><span>Начислено</span><strong>${money(t.accrued)}</strong></div><div class="stat-card"><span>Выплачено</span><strong>${money(t.paid)}</strong></div><div class="stat-card"><span>Задолженность</span><strong>${money(t.debt_total)}</strong></div></div><div class="panel"><h3>Баланс исполнителей</h3><div class="list">${(balances.items||[]).length?balances.items.map(x=>`<article class="record-card"><div class="record-main"><strong>${esc(x.user.full_name)}</strong><div class="record-meta"><span>Начислено: ${money(x.accrued)}</span><span>Выплачено: ${money(x.paid)}</span></div></div><div class="amount">${money(x.balance)}</div></article>`).join(''):'<div class="empty">Нет финансовых данных</div>'}</div></div>`;
-  }catch(e){el.innerHTML=pageHead('Финансы','Не удалось загрузить данные')+`<div class="notice warn">${esc(e.message)}</div>`;}
-}
-async function renderStats(el){
-  el.innerHTML=pageHead('Статистика','Производственные показатели')+'<div class="muted">Загрузка…</div>';
-  try{
-    const d=await api('/stats/summary');
-    const n=d.counts||{},m=d.money||{};
-    el.innerHTML=pageHead('Статистика','Сводные показатели по выполненным работам','<button class="btn secondary" id="pdf-production">PDF-отчёт</button>')+`<div class="cards"><div class="stat-card"><span>Дверей</span><strong>${Number(n.doors||0)}</strong></div><div class="stat-card"><span>Ремонтов</span><strong>${Number(n.repairs||0)}</strong></div><div class="stat-card"><span>Упаковок</span><strong>${Number(n.packings||0)}</strong></div><div class="stat-card"><span>Других работ</span><strong>${Number(n.other_works||0)}</strong></div><div class="stat-card"><span>Всего операций</span><strong>${Number(n.operations||0)}</strong></div><div class="stat-card"><span>Начислено</span><strong>${money(m.accrued)}</strong></div></div><div class="panel"><h3>Финансовые показатели</h3><div class="record-meta"><span>Выплачено: ${money(m.paid)}</span><span>Задолженность: ${money(m.debt)}</span><span>Переплата: ${money(m.overpayment)}</span></div></div>`;
-    document.getElementById('pdf-production').addEventListener('click',()=>downloadReport('/export/pdf/production','production-report.pdf'));
-  }catch(e){el.innerHTML=pageHead('Статистика','Не удалось загрузить показатели')+`<div class="notice warn">${esc(e.message)}</div>`;}
-}
-async function downloadReport(path,filename){
-  try{
-    const response=await fetch(API+path,{credentials:'same-origin',cache:'no-store'});
-    if(!response.ok){let data={};try{data=await response.json();}catch(_){}throw new Error(data.error?.message||'Не удалось сформировать отчёт');}
-    const blob=await response.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);
-  }catch(e){toast(e.message);}
 }
 
 function recordHtml(r){return `<article class="record-card"><div class="record-main"><strong>${esc(r.work_type?.name||'Работа')} · ${esc(r.door?.number||'Без номера')}</strong><div class="record-meta"><span>Выполнено: ${date(r.completed_at)}</span><span>${esc(r.user?.full_name||'')}</span><span>${Number(r.photos_count||0)} фото</span><span class="pill ${r.status==='voided'?'pending':'synced'}">${r.status==='voided'?'Аннулирована':'Действует'}</span></div><div class="hint">${r.completed_at_source==='device'?'Время выполнения с устройства':'Время выполнения по серверу'} · Получено сервером: ${date(r.received_at)}</div>${r.status==='voided'&&r.void_reason?`<div class="hint">Причина аннулирования: ${esc(r.void_reason)}</div>`:''}</div><div class="amount">${money(r.total_amount)}</div></article>`;}
