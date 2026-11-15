@@ -187,7 +187,7 @@ async function renderHistory(el){
 }
 async function renderFinance(el){
   const isAll=['owner','director'].includes(state.user.role);
-  el.innerHTML=pageHead('Финансы',isAll?'Начисления, выплаты и задолженность':'Ваши начисления и выплаты')+`<form id="finance-filter" class="panel"><div class="form-grid"><div class="field"><label for="finance-from">Период с</label><input id="finance-from" name="date_from" type="date"></div><div class="field"><label for="finance-to">Период по</label><input id="finance-to" name="date_to" type="date"></div></div><div class="actions"><button class="btn" type="submit">Применить</button><button class="btn ghost" type="reset">Сбросить</button></div></form><div id="finance-summary" class="cards"></div><div class="panel"><h3>Начисления</h3><div id="accrual-list" class="list"><div class="muted">Загрузка…</div></div><div id="accrual-pages" class="actions"></div></div>`;
+  el.innerHTML=pageHead('Финансы',isAll?'Начисления, выплаты и задолженность':'Ваши начисления и выплаты')+`<form id="finance-filter" class="panel"><div class="form-grid"><div class="field"><label for="finance-from">Период с</label><input id="finance-from" name="date_from" type="date"></div><div class="field"><label for="finance-to">Период по</label><input id="finance-to" name="date_to" type="date"></div></div><div class="actions"><button class="btn" type="submit">Применить</button><button class="btn ghost" type="reset">Сбросить</button></div></form><div id="finance-summary" class="cards"></div><div class="panel"><h3>Начисления за выбранный период</h3><div id="accrual-list" class="list"><div class="muted">Загрузка…</div></div><div id="accrual-pages" class="actions"></div></div>`;
   const form=document.getElementById('finance-filter');
   const summary=document.getElementById('finance-summary');
   const list=document.getElementById('accrual-list');
@@ -203,7 +203,7 @@ async function renderFinance(el){
       const [accruals,finance]=await Promise.all(tasks);
       const totals=isAll?finance.totals:finance.totals;
       summary.innerHTML=[
-        ['Начислено',totals.accrued],['Выплачено',totals.paid],['Остаток',totals.balance??totals.debt_total],['Переплата',totals.overpayment??totals.overpayment_total]
+        ['Начислено за всё время',totals.accrued],['Выплачено за всё время',totals.paid],['Задолженность',totals.debt??totals.debt_total],['Переплата',totals.overpayment??totals.overpayment_total]
       ].map(([label,value])=>`<div class="stat-card"><span>${label}</span><strong>${money(value)}</strong></div>`).join('');
       const rows=accruals.items||[];
       list.innerHTML=rows.length?rows.map(a=>`<article class="record-card"><div class="record-main"><strong>${esc(a.work_type?.name||'Работа')} · ${esc(a.door_number||'Без номера')}</strong><div class="record-meta"><span>${date(a.completed_at)}</span><span>${esc(a.user?.full_name||'')}</span><span>${esc(a.quantity)} ${esc(a.unit)}</span><span class="pill ${a.payment_state==='paid'?'synced':'pending'}">${({unpaid:'Не выплачено',partial:'Частично',paid:'Выплачено',voided:'Аннулировано'})[a.payment_state]||a.payment_state}</span></div><div class="hint">Начислено: ${money(a.total_amount)} · Выплачено: ${money(a.paid)} · Остаток: ${money(a.outstanding)}</div></div></article>`).join(''):'<div class="empty">Начислений за выбранный период нет</div>';
