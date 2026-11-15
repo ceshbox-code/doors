@@ -55,6 +55,7 @@ return static function (Router $router): void {
     $router->patch('/api/v1/users/{id}',             Guard::auth([$users, 'update'],     'users.manage'));
     $router->post('/api/v1/users/{id}/deactivate',   Guard::auth([$users, 'deactivate'], 'users.manage'));
     $router->post('/api/v1/users/{id}/activate',     Guard::auth([$users, 'activate'],   'users.manage'));
+    $router->get('/api/v1/executors',                 Guard::auth([$users, 'executors'], 'executors.view'));
 
     // 12.3 Двери (номер двери создаётся автоматически; ручное создание — только администратор)
     $router->post('/api/v1/doors',                    Guard::auth([$doors, 'store'],    'doors.create'));
@@ -118,8 +119,8 @@ return static function (Router $router): void {
     $router->get('/api/v1/stats/summary',     Guard::auth([$stat, 'summary'],   'stats.view'));
     $router->get('/api/v1/stats/daily',       Guard::auth([$stat, 'daily'],     'stats.view'));
     $router->get('/api/v1/stats/work-types',  Guard::auth([$stat, 'workTypes'], 'stats.view'));
-    $router->get('/api/v1/stats/users',       Guard::auth([$stat, 'users'],     'stats.view'));
-    $router->get('/api/v1/stats/doors',       Guard::auth([$stat, 'doors'],     'stats.view'));
+    $router->get('/api/v1/stats/users',       Guard::auth([$stat, 'users'],     'stats.view_details'));
+    $router->get('/api/v1/stats/doors',       Guard::auth([$stat, 'doors'],     'stats.view_details'));
 
     // 12.10 Экспорт. Расчётный лист доступен и исполнителю (только свой подтверждённый — проверка в сервисе)
     $router->get('/api/v1/export/pdf/production',   Guard::auth([$exp, 'production'], 'reports.export'));
