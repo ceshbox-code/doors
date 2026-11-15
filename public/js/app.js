@@ -136,7 +136,7 @@ async function renderHome(el){
   el.innerHTML=pageHead('Рабочий обзор','Состояние учёта выполненных работ')+`<div class="cards">${isMaster?'<div class="stat-card"><span>Ожидают отправки</span><strong id="pending-count">…</strong></div>':''}<div class="stat-card"><span>Подключение</span><strong style="font-size:20px">${state.online?'Онлайн':'Офлайн'}</strong></div><div class="stat-card"><span>Пользователь</span><strong style="font-size:18px">${esc(state.user.full_name||'')}</strong></div></div><div class="panel"><h3>Быстрые действия</h3><div class="actions">${isMaster?'<button class="btn" data-nav="new">＋ Зарегистрировать работу</button><button class="btn secondary" data-nav="queue">Открыть очередь</button>':''}<button class="btn secondary" data-nav="history">История работ</button>${role==='director'?'<button class="btn secondary" data-nav="work-management">Виды работ и тарифы</button><button class="btn secondary" data-nav="finance">Финансы и выплаты</button>':''}</div></div><div class="panel"><h3>Последние работы</h3><div id="recent-list" class="list"><div class="muted">Загрузка…</div></div></div>`;
   el.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.nav)));
   if(isMaster){const queue=await queueAll().catch(()=>[]);const pc=el.querySelector('#pending-count');if(pc)pc.textContent=queue.filter(q=>Number(q.ownerUserId)===Number(state.user.id)).length;}
-  try{const data=await api('/work-records?per_page=5');const rows=data.items||[];const list=el.querySelector('#recent-list');if(list)list.innerHTML=rows.length?rows.map(recordHtml).join(''):'<div class="empty">Записей пока нет</div>';}
+  try{const data=await api('/work-records?per_page=5');const rows=data.items||[];const list=el.querySelector('#recent-list');if(list){list.innerHTML=rows.length?rows.map(recordHtml).join(''):'<div class="empty">Записей пока нет</div>';bindPhotoActions(list);}}
   catch(e){const list=el.querySelector('#recent-list');if(list)list.innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;}
 }
 async function renderNew(el){
@@ -221,6 +221,7 @@ async function renderHistory(el){
       const data=await api('/work-records?'+params.toString());
       const rows=data.items||[];
       list.innerHTML=rows.length?rows.map(recordHtml).join(''):'<div class="empty">По заданным условиям записи не найдены</div>';
+      bindPhotoActions(list);
       summary.textContent=`Найдено: ${data.total||0}. Страница ${data.page||page} из ${Math.max(1,Math.ceil((data.total||0)/(data.per_page||50)))}`;
       const current=data.page||page,totalPages=Math.max(1,Math.ceil((data.total||0)/(data.per_page||50)));
       if(current>1)pages.insertAdjacentHTML('beforeend','<button class="btn secondary" id="history-prev" type="button">← Назад</button>');
@@ -332,6 +333,7 @@ function renderDoors(el){
       const history=door.history||[];
       const types=door.registered_work_types||[];
       result.innerHTML=`<div class="panel"><div class="page-head"><div><h2>${esc(door.number)}</h2><p>Создана: ${date(door.created_at)}</p></div><span class="pill">${door.status==='active'?'Активна':esc(door.status||'Дверь')}</span></div><h3>Виды работ</h3><div class="record-meta">${(history.length?[...new Map(history.map(r=>[r.work_type.id,r.work_type.name])).entries()].map(x=>x[1]):types.map(t=>t.name)).map(n=>`<span class="pill">${esc(n)}</span>`).join('')||'Нет зарегистрированных работ'}</div></div>${door.history!==undefined?`<div class="panel"><h3>История работ</h3><div class="list">${history.length?history.map(recordHtml).join(''):'<div class="empty">История работ пуста</div>'}</div></div>`:''}`;
+      bindPhotoActions(result);
     }catch(err){result.innerHTML=`<div class="notice warn">${esc(err.message)}</div>`;}
   });
 }
@@ -401,7 +403,30 @@ async function renderFinance(el){
   await Promise.all([load(1),loadAdmin()]);
 }
 
-function recordHtml(r){return `<article class="record-card"><div class="record-main"><strong>${esc(r.work_type?.name||'Работа')} · ${esc(r.door?.number||'Без номера')}</strong><div class="record-meta"><span>Выполнено: ${date(r.completed_at)}</span><span>${esc(r.user?.full_name||'')}</span><span>${Number(r.photos_count||0)} фото</span><span class="pill ${r.status==='voided'?'pending':'synced'}">${r.status==='voided'?'Аннулирована':'Действует'}</span></div><div class="hint">${r.completed_at_source==='device'?'Время выполнения с устройства':'Время выполнения по серверу'} · Получено сервером: ${date(r.received_at)}</div>${r.status==='voided'&&r.void_reason?`<div class="hint">Причина аннулирования: ${esc(r.void_reason)}</div>`:''}</div><div class="amount">${money(r.total_amount)}</div></article>`;}
+function recordHtml(r){
+  const count=Number(r.photos_count||0);
+  return `<article class="record-card"><div class="record-main"><strong>${esc(r.work_type?.name||'Работа')} · ${esc(r.door?.number||'Без номера')}</strong><div class="record-meta"><span>Выполнено: ${date(r.completed_at)}</span><span>${esc(r.user?.full_name||'')}</span><span>${count} фото</span><span class="pill ${r.status==='voided'?'pending':'synced'}">${r.status==='voided'?'Аннулирована':'Действует'}</span></div><div class="hint">${r.completed_at_source==='device'?'Время выполнения с устройства':'Время выполнения по серверу'} · Получено сервером: ${date(r.received_at)}</div>${count?'<button class="btn ghost" type="button" data-photo-record="'+r.id+'">Показать фотографии ('+count+')</button><div class="photo-gallery" data-photo-gallery="'+r.id+'"></div>':''}${r.status==='voided'&&r.void_reason?`<div class="hint">Причина аннулирования: ${esc(r.void_reason)}</div>`:''}</div><div class="amount">${money(r.total_amount)}</div></article>`;
+}
+function bindPhotoActions(container){
+  container.querySelectorAll('[data-photo-record]').forEach(button=>button.addEventListener('click',async()=>{
+    const id=button.dataset.photoRecord;
+    const gallery=container.querySelector('[data-photo-gallery="'+id+'"]');
+    if(!gallery)return;
+    if(gallery.dataset.loaded==='1'){
+      gallery.hidden=!gallery.hidden;
+      button.textContent=gallery.hidden?'Показать фотографии':'Скрыть фотографии';
+      return;
+    }
+    button.disabled=true;button.textContent='Загрузка фотографий…';
+    try{
+      const photos=await api('/work-records/'+encodeURIComponent(id)+'/photos');
+      if(!Array.isArray(photos)||!photos.length)gallery.innerHTML='<span class="muted">Фотографии не найдены</span>';
+      else gallery.innerHTML=photos.map(photo=>`<a href="${esc(photo.original_url||photo.url)}" target="_blank" rel="noopener noreferrer"><img src="${esc(photo.url)}" alt="Фото выполненной работы" loading="lazy" style="max-width:180px;max-height:160px;object-fit:contain;border-radius:8px"></a>`).join('');
+      gallery.dataset.loaded='1';gallery.hidden=false;button.textContent='Скрыть фотографии';
+    }catch(err){gallery.innerHTML=`<span class="error">${esc(err.message)}</span>`;button.textContent='Повторить загрузку';}
+    finally{button.disabled=false;}
+  }));
+}
 async function logout(){
   if(navigator.onLine&&state.serverAuthenticated){try{await api('/auth/logout',{method:'POST',body:'{}'});}catch(_){}}
   state.user=null;state.csrf='';state.serverAuthenticated=false;await metaPut('auth',null);renderLogin();
