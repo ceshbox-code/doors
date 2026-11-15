@@ -57,7 +57,7 @@ return static function (Router $router): void {
     $router->post('/api/v1/users/{id}/activate',     Guard::auth([$users, 'activate'],   'users.manage'));
     $router->get('/api/v1/executors',                 Guard::auth([$users, 'executors'], 'executors.view'));
 
-    // 12.3 Двери (номер двери создаётся автоматически; ручное создание — только администратор)
+    // 12.3 Двери (номер создаётся автоматически; ручное создание через API не предоставляется ролям)
     $router->post('/api/v1/doors',                    Guard::auth([$doors, 'store'],    'doors.create'));
     $router->get('/api/v1/doors',                     Guard::auth([$doors, 'index'],    'doors.view'));
     $router->get('/api/v1/doors/number/{number}',     Guard::auth([$doors, 'byNumber'], 'doors.lookup'));
@@ -93,7 +93,7 @@ return static function (Router $router): void {
     $router->get('/api/v1/photos/{id}',               Guard::auth([$photos, 'show'],    ['photos.view', 'work.view_own']));
     $router->delete('/api/v1/photos/{id}',            Guard::auth([$photos, 'destroy'], 'photos.delete'));
 
-    // 12.8 Финансовый учёт (изменения — только администратор; директор — просмотр; исполнитель — своё)
+    // 12.8 Финансовый учёт (директор — полный контроль; мастер — только собственные данные)
     $router->get('/api/v1/finance/summary',           Guard::auth([$fin, 'summary'],  'finance.view_all'));
     $router->get('/api/v1/finance/accruals',          Guard::auth([$fin, 'accruals'], $view));
     $router->get('/api/v1/finance/balances',          Guard::auth([$fin, 'balances'], 'finance.view_all'));
