@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Validators;
 
+use App\Helpers\Dates;
 use App\Helpers\Input;
 use App\Helpers\Money;
 use App\Models\Door;
@@ -10,7 +11,7 @@ use App\Models\Door;
 final class WorkRecordValidator
 {
     /**
-     * @return array{work_type_id:int,door_number:?string,new_door:bool,quantity:string,comment:?string,user_id:?int}
+     * @return array{work_type_id:int,door_number:?string,new_door:bool,quantity:string,comment:?string,user_id:?int,completed_at:?string}
      */
     public static function register(array $in): array
     {
@@ -57,6 +58,14 @@ final class WorkRecordValidator
             }
         }
 
+        $completedAt = null;
+        if (array_key_exists('completed_at', $in) && $in['completed_at'] !== '') {
+            $completedAt = is_string($in['completed_at']) ? Dates::parseToUtc($in['completed_at']) : null;
+            if ($completedAt === null) {
+                $e['completed_at'] = 'Передайте дату и время ISO 8601 с часовым поясом, например 2026-11-15T14:30:00+03:00';
+            }
+        }
+
         $userId = null;
         if (isset($in['user_id'])) {
             $userId = Input::id($in['user_id']);
@@ -70,7 +79,7 @@ final class WorkRecordValidator
         }
         return [
             'work_type_id' => $typeId, 'door_number' => $doorNumber, 'new_door' => $newDoor,
-            'quantity' => $quantity, 'comment' => $comment, 'user_id' => $userId,
+            'quantity' => $quantity, 'comment' => $comment, 'user_id' => $userId, 'completed_at' => $completedAt,
         ];
     }
 
