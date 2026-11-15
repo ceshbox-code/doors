@@ -107,6 +107,7 @@ async function renderNew(el){
   const typeSelect=form.elements.work_type_id, doorInput=form.elements.door_number, newDoor=form.elements.new_door;
   const updateDoorRule=()=>{const option=typeSelect.selectedOptions[0];const required=option?.dataset.doorRequired==='1';document.getElementById('door-requirement').textContent=required?'Для выбранного вида работы обязательно укажите существующую дверь или отметьте создание новой.':'Привязка к двери необязательна для выбранного вида работы.';doorInput.required=required&&!newDoor.checked;};
   typeSelect.addEventListener('change',updateDoorRule);newDoor.addEventListener('change',()=>{doorInput.disabled=newDoor.checked;doorInput.value=newDoor.checked?'':doorInput.value;updateDoorRule();});updateDoorRule();
+  form.addEventListener('reset',()=>setTimeout(()=>{doorInput.disabled=false;updateDoorRule();document.getElementById('file-list').textContent='Файлы не выбраны';},0));
   files.addEventListener('change',()=>{document.getElementById('file-list').textContent=Array.from(files.files).map(f=>f.name).join(', ')||'Файлы не выбраны';});
   form.addEventListener('submit',async e=>{
     e.preventDefault();const fd=new FormData(form);const photos=Array.from(files.files||[]);
