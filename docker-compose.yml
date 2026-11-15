@@ -1,0 +1,46 @@
+version: "2.4"
+
+services:
+  doors-db:
+    image: mariadb:10.11
+    container_name: doors-db
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      TZ: UTC
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - ${DATA_DIR:-./data}/db:/var/lib/mysql
+    networks: [doors-net]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MARIADB_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # Одно приложение: Apache + PHP. Наружу публикуется только HTTP_PORT;
+  # HTTPS обеспечивает обратный прокси DSM (назначение: http://localhost:HTTP_PORT).
+  doors-app:
+    build:
+      context: .
+      args:
+        PHP_IMAGE: ${PHP_IMAGE:-php:8.0-apache}
+    image: doors-accounting-app:latest
+    container_name: doors-app
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      doors-db:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-8066}:80"
+    volumes:
+      - ${DATA_DIR:-./data}/storage:/var/www/html/storage
+    networks: [doors-net]
+
+networks:
+  doors-net:
+    name: doors-net

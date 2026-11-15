@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1f3a5f">
+  <link rel="manifest" href="/manifest.json">
+  <title>Учёт дверей</title>
+</head>
+<body>
+  <h1>Учёт дверей</h1>
+  <p id="status">Проверка соединения…</p>
+  <script>
+    fetch('/api/v1/health').then(r => r.json()).then(j => {
+      document.getElementById('status').textContent =
+        j.success ? 'Сервер работает, база данных доступна.' : 'Ошибка: база данных недоступна.';
+    }).catch(() => { document.getElementById('status').textContent = 'Сервер не отвечает.'; });
+  </script>
+</body>
+</html>

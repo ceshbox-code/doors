@@ -1,0 +1,22 @@
+CREATE TABLE payments (
+    id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id        BIGINT UNSIGNED NOT NULL,
+    payroll_run_id BIGINT UNSIGNED NULL,
+    amount         DECIMAL(14,2) NOT NULL,
+    payment_method VARCHAR(40) NOT NULL,
+    payment_date   DATETIME NOT NULL,
+    reference      VARCHAR(190) NULL,
+    comment        TEXT NULL,
+    status         ENUM('draft','posted','cancelled') NOT NULL DEFAULT 'draft',
+    created_by     BIGINT UNSIGNED NOT NULL,
+    created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    posted_at      DATETIME NULL,
+    PRIMARY KEY (id),
+    KEY idx_payments_user_date (user_id, payment_date),
+    KEY idx_payments_run (payroll_run_id),
+    KEY idx_payments_status (status),
+    CONSTRAINT chk_payments_amount CHECK (amount > 0),
+    CONSTRAINT fk_payments_user FOREIGN KEY (user_id) REFERENCES users (id),
+    CONSTRAINT fk_payments_run FOREIGN KEY (payroll_run_id) REFERENCES payroll_runs (id),
+    CONSTRAINT fk_payments_created_by FOREIGN KEY (created_by) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
