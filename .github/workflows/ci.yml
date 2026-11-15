@@ -11,6 +11,31 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_DATABASE: doors_test
+          MARIADB_USER: doors
+          MARIADB_PASSWORD: doors_test_password
+          MARIADB_ROOT_PASSWORD: root_test_password
+          TZ: UTC
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: doors_test
+      DB_USER: doors
+      DB_PASSWORD: doors_test_password
+      APP_TIMEZONE: Europe/Kaliningrad
+      SESSION_SECURE: '0'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,6 +65,43 @@ jobs:
         run: |
           node --check public/js/app.js
           node --check public/sw.js
+
+      - name: Apply migrations 001-017 and seed fixture data
+        run: |
+          mkdir -p /tmp/door-migrations-pre018
+          find database/migrations -maxdepth 1 -type f -name '*.sql' ! -name '018_work_record_received_at.sql' -exec cp {} /tmp/door-migrations-pre018/ \;
+          php -r 'require "vendor/autoload.php"; $applied=(new App\\Core\\Migrator(App\\Core\\Database::pdo(), "/tmp/door-migrations-pre018"))->run(); echo "Applied pre-018 migrations: ".count($applied)."\\n";'
+          php bin/seed.php
+          php <<'PHP'
+          <?php
+          require 'vendor/autoload.php';
+          $pdo = App\Core\Database::pdo();
+          $pdo->exec("INSERT INTO users (full_name, username, password_hash, role) VALUES ('CI Migration Fixture', 'ci-migration', 'not-used', 'owner')");
+          $userId = (int) $pdo->lastInsertId();
+          $pdo->exec("INSERT INTO doors (number, created_by) VALUES ('CI-DOOR-0001', {$userId})");
+          $doorId = (int) $pdo->lastInsertId();
+          $typeId = (int) $pdo->query("SELECT id FROM work_types WHERE name = 'Ремонт двери'")->fetchColumn();
+          $pdo->exec("INSERT INTO work_rates (user_id, work_type_id, unit_price, valid_from, created_by) VALUES ({$userId}, {$typeId}, 100.00, '2020-01-01 00:00:00', {$userId})");
+          $rateId = (int) $pdo->lastInsertId();
+          $pdo->exec("INSERT INTO work_records (work_type_id, door_id, user_id, rate_id, quantity, unit, unit_price, total_amount, allow_unique_per_door, completed_at, created_at, created_by) VALUES ({$typeId}, {$doorId}, {$userId}, {$rateId}, 1, 'шт', 100.00, 100.00, 0, '2020-01-01 00:00:00', '2020-01-02 03:04:05', {$userId})");
+          echo "Created legacy work record id=".$pdo->lastInsertId()."\n";
+          PHP
+
+      - name: Apply migration 018 and verify timestamp backfill
+        run: |
+          php bin/migrate.php
+          php <<'PHP'
+          <?php
+          require 'vendor/autoload.php';
+          $pdo = App\Core\Database::pdo();
+          $row = $pdo->query("SELECT received_at, created_at, completed_at_source FROM work_records WHERE created_by = (SELECT id FROM users WHERE username = 'ci-migration') ORDER BY id DESC LIMIT 1")->fetch();
+          if (!$row || $row['received_at'] !== $row['created_at'] || $row['completed_at_source'] !== 'server') {
+              fwrite(STDERR, "Migration 018 backfill assertion failed: ".json_encode($row, JSON_UNESCAPED_UNICODE)."\n");
+              exit(1);
+          }
+          echo "Migration 018 backfill OK: received_at equals legacy created_at; source=server.\n";
+          PHP
+          php bin/migrate.php
 
       - name: Run PHPUnit
         run: composer test
