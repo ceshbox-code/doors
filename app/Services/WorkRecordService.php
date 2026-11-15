@@ -96,7 +96,6 @@ final class WorkRecordService
         }
         $hash = IdempotencyService::hash($hashData);
         $completedAt = $d['completed_at'] ?? Dates::nowUtc();
-        $receivedAt = Dates::nowUtc();
         $done = $this->idem->peek($actorId, $idemKey, 'work_record.create', $hash);
         if ($done !== null) {
             return ['status' => (int) $done['status'], 'data' => $done['data'], 'replayed' => true];
