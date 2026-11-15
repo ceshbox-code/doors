@@ -29,6 +29,7 @@ final class WorkRecordValidatorTest extends TestCase
         $this->assertSame('1.000', $d['quantity']);
         $this->assertNull($d['comment']);
         $this->assertNull($d['user_id']);
+        $this->assertNull($d['completed_at']);
     }
 
     public function testDoorNumberIsNormalized(): void
@@ -51,6 +52,24 @@ final class WorkRecordValidatorTest extends TestCase
             'door_number' => 'X-1', 'quantity' => 0, 'comment' => str_repeat('я', 2001), 'user_id' => 'abc',
         ]));
         $this->assertEqualsCanonicalizing(['work_type_id', 'door_number', 'quantity', 'comment', 'user_id'], array_keys($e));
+    }
+
+    public function testDeviceCompletionTimestampIsConvertedToUtc(): void
+    {
+        $d = WorkRecordValidator::register([
+            'work_type_id' => 1,
+            'completed_at' => '2026-11-15T14:30:00+03:00',
+        ]);
+        $this->assertSame('2026-11-15 11:30:00', $d['completed_at']);
+    }
+
+    public function testRejectsCompletionTimestampWithoutTimezone(): void
+    {
+        $e = $this->errors(fn() => WorkRecordValidator::register([
+            'work_type_id' => 1,
+            'completed_at' => '2026-11-15T14:30:00',
+        ]));
+        $this->assertArrayHasKey('completed_at', $e);
     }
 
     public function testVoidReason(): void
