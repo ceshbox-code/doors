@@ -23,6 +23,8 @@ final class WorkRecord
             'total_amount' => $r['total_amount'],
             'rate_id'      => (int) $r['rate_id'],
             'completed_at' => Dates::toIso($r['completed_at']),
+            'received_at'  => Dates::toIso($r['received_at']),
+            'completed_at_source' => $r['completed_at_source'],
             'created_at'   => Dates::toIso($r['created_at']),
             'created_by'   => ['id' => (int) $r['created_by'], 'full_name' => $r['created_by_name']],
             'comment'      => $r['comment'],
