@@ -182,7 +182,7 @@ async function renderQueue(el){
 }
 function typeName(id){return state.workTypes.find(t=>String(t.id)===String(id))?.name||'Вид работы';}
 async function syncQueue(){
-  if(!navigator.onLine||!state.user||!state.serverAuthenticated||state.busy)return;
+  if(!navigator.onLine||!state.user||state.user.role!=='master'||!state.serverAuthenticated||state.busy)return;
   state.busy=true;
   try{
     const rows=(await queueAll()).sort((a,b)=>a.createdLocal.localeCompare(b.createdLocal));
