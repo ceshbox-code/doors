@@ -82,10 +82,10 @@ function renderLogin(error=''){
   });
 }
 
-const navItems=[['home','Обзор','⌂'],['new','Новая работа','＋'],['queue','Офлайн-очередь','⇧'],['history','История','▤'],['doors','Двери','▣'],['finance','Финансы','₽']];
+const navItems=[['home','Обзор','⌂'],['new','Новая работа','＋'],['queue','Офлайн-очередь','⇧'],['history','История','▤'],['doors','Двери','▣'],['stats','Статистика','▥'],['finance','Финансы','₽']];
 function render(){
   const role=state.user?.role||'';
-  const items=navItems.filter(([id])=>id!=='new'||['owner','master'].includes(role));
+  const items=navItems.filter(([id])=>(id!=='new'||['owner','master'].includes(role))&&(id!=='stats'||['owner','director'].includes(role)));
   app.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">Д</span><div><strong>Учёт дверей</strong><small>Производственный учёт</small></div></div><nav class="nav">${items.map(([id,label])=>navButton(id,label)).join('')}</nav><div class="sidebar-bottom"><div>${esc(state.user.full_name||state.user.username||'Пользователь')}</div><div>${esc(roleLabel(role))}</div><button class="nav-button" data-action="logout" style="margin-top:14px;background:transparent;border:0;color:#d9e5eb;padding:8px">Выйти ↗</button></div></aside><main class="main"><header class="topbar"><h1>${pageTitle()}</h1><div class="user-chip">${esc(state.user.full_name||'')} · ${esc(roleLabel(role))}</div><div class="connection"><span class="dot ${state.online?'':'offline'}"></span>${state.online?'В сети':'Нет сети'}</div></header><section class="content" id="page-content"></section></main></div><nav class="mobile-nav">${items.map(([id,label,icon])=>`<button data-page="${id}" class="${state.page===id?'active':''}"><span class="nav-icon">${icon}</span><span>${label}</span></button>`).join('')}</nav>`;
   app.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.page)));
   app.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.nav)));
@@ -94,7 +94,7 @@ function render(){
 }
 function navButton(id,label){return `<button data-nav="${id}" class="${state.page===id?'active':''}">${label}</button>`;}
 function roleLabel(role){return ({owner:'Администратор',master:'Мастер',director:'Директор'})[role]||'Пользователь';}
-function pageTitle(){return ({home:'Обзор',new:'Регистрация работы',queue:'Офлайн-очередь',history:'История работ',doors:'Двери',finance:'Финансы'})[state.page]||'Учёт дверей';}
+function pageTitle(){return ({home:'Обзор',new:'Регистрация работы',queue:'Офлайн-очередь',history:'История работ',doors:'Двери',stats:'Статистика',finance:'Финансы'})[state.page]||'Учёт дверей';}
 function go(page){state.page=page;render();}
 function pageHead(title,sub,button=''){return `<div class="page-head"><div><h2>${title}</h2><p>${sub}</p></div>${button}</div>`;}
 
@@ -104,6 +104,7 @@ async function renderPage(){
   if(state.page==='queue'){await renderQueue(el);return;}
   if(state.page==='history'){await renderHistory(el);return;}
   if(state.page==='doors'){renderDoors(el);return;}
+  if(state.page==='stats'){await renderStats(el);return;}
   if(state.page==='finance'){await renderFinance(el);return;}
   await renderHome(el);
 }
@@ -200,6 +201,28 @@ async function renderHistory(el){
   form.addEventListener('submit',e=>{e.preventDefault();load(1);});
   form.addEventListener('reset',()=>setTimeout(()=>load(1),0));
   await load(1);
+}
+async function renderStats(el){
+  el.innerHTML=pageHead('Статистика','Показатели производства и начислений')+`<form id="stats-filter" class="panel"><div class="form-grid"><div class="field"><label>Дата с</label><input type="date" name="date_from"></div><div class="field"><label>Дата по</label><input type="date" name="date_to"></div></div><div class="actions"><button class="btn" type="submit">Применить</button><button class="btn ghost" type="reset">Сбросить</button></div></form><div id="stats-cards" class="cards"></div><div class="panel"><h3>По видам работ</h3><div id="stats-types" class="list"><div class="muted">Загрузка…</div></div></div><div class="panel"><h3>По дням</h3><div id="stats-days" class="list"><div class="muted">Загрузка…</div></div></div>`;
+  const form=document.getElementById('stats-filter');
+  const cards=document.getElementById('stats-cards'),types=document.getElementById('stats-types'),days=document.getElementById('stats-days');
+  const load=async()=>{
+    const params=new URLSearchParams();for(const k of ['date_from','date_to'])if(form.elements[k].value)params.set(k,form.elements[k].value);
+    const q=params.toString()?'?'+params.toString():'';
+    cards.innerHTML='';types.innerHTML='<div class="muted">Загрузка…</div>';days.innerHTML='<div class="muted">Загрузка…</div>';
+    try{
+      const [summary,typeData,daily]=await Promise.all([api('/stats/summary'+q),api('/stats/work-types'+q),api('/stats/daily'+q)]);
+      const n=summary.counts||{},m=summary.money||{};
+      cards.innerHTML=[['Дверей',n.doors],['Операций',n.operations],['Ремонтов',n.repairs],['Упаковок',n.packings],['Дополнительных работ',n.other_works],['Начислено',money(m.accrued)],['Выплачено',m.paid===null?'—':money(m.paid)],['Задолженность',m.debt===null?'—':money(m.debt)]].map(([label,value])=>`<div class="stat-card"><span>${label}</span><strong>${value??0}</strong></div>`).join('');
+      const rows=typeData.items||[];
+      types.innerHTML=rows.length?rows.map(t=>`<article class="record-card"><div class="record-main"><strong>${esc(t.work_type.name)}</strong><div class="record-meta"><span>${t.works_count} операций</span><span>${t.doors_count} дверей</span><span>${esc(t.quantity)} ${esc(t.work_type.unit)}</span></div></div><div class="amount">${money(t.amount)}</div></article>`).join(''):'<div class="empty">Нет данных за выбранный период</div>';
+      const dailyRows=daily.items||[];
+      days.innerHTML=dailyRows.length?dailyRows.slice().reverse().map(d=>`<article class="record-card"><div class="record-main"><strong>${esc(d.date)}</strong><div class="record-meta"><span>${d.works_count} операций</span><span>${d.doors_count} дверей</span><span>Ремонт: ${d.repairs}</span><span>Упаковка: ${d.packings}</span><span>Доп.: ${d.other_works}</span></div></div><div class="amount">${money(d.amount)}</div></article>`).join(''):'<div class="empty">Нет данных по дням</div>';
+    }catch(e){cards.innerHTML='';types.innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;days.innerHTML='';}
+  };
+  form.addEventListener('submit',e=>{e.preventDefault();load();});
+  form.addEventListener('reset',()=>setTimeout(load,0));
+  await load();
 }
 function renderDoors(el){
   el.innerHTML=pageHead('Двери','Поиск двери по номеру и просмотр истории работ')+`<form id="door-lookup" class="panel"><div class="form-grid"><div class="field"><label for="door-lookup-number">Номер двери</label><input id="door-lookup-number" name="number" placeholder="D-000123" pattern="D-[0-9]{6,12}" required></div></div><button class="btn" type="submit">Найти дверь</button></form><div id="door-result"></div>`;
