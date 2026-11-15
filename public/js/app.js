@@ -158,12 +158,14 @@ async function renderHistory(el){
   try{const data=await api('/work-records?per_page=50');const rows=data.items||[];document.getElementById('history-list').innerHTML=rows.length?rows.map(recordHtml).join(''):'<div class="empty">Записей нет</div>';}
   catch(e){document.getElementById('history-list').innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;}
 }
-function recordHtml(r){return `<article class="record-card"><div class="record-main"><strong>${esc(r.work_type?.name||'Работа')} · ${esc(r.door?.number||'Без номера')}</strong><div class="record-meta"><span>${date(r.completed_at)}</span><span>${esc(r.user?.full_name||'')}</span><span>${Number(r.photos_count||0)} фото</span></div></div><div class="amount">${money(r.total_amount)}</div></article>`;}
+function recordHtml(r){return `<article class="record-card"><div class="record-main"><strong>${esc(r.work_type?.name||'Работа')} · ${esc(r.door?.number||'Без номера')}</strong><div class="record-meta"><span>Выполнено: ${date(r.completed_at)}</span><span>${esc(r.user?.full_name||'')}</span><span>${Number(r.photos_count||0)} фото</span></div><div class="hint">${r.completed_at_source==='device'?'Время выполнения с устройства':'Время выполнения по серверу'} · Получено сервером: ${date(r.received_at)}</div></div><div class="amount">${money(r.total_amount)}</div></article>`;}
 async function logout(){
   if(navigator.onLine){try{await api('/auth/logout',{method:'POST',body:'{}'});}catch(_){}}
   state.user=null;state.csrf='';await metaPut('auth',null);renderLogin();
 }
 window.addEventListener('online',()=>{state.online=true;if(state.user){render();syncQueue();}else renderLogin();});
 window.addEventListener('offline',()=>{state.online=false;if(state.user)render();});
+window.addEventListener('focus',()=>{if(state.user&&navigator.onLine)syncQueue();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.user&&navigator.onLine)syncQueue();});
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));}
 boot();
