@@ -345,7 +345,7 @@ async function renderFinance(el){
 }
 
 function recordHtml(r){return `<article class="record-card"><div class="record-main"><strong>${esc(r.work_type?.name||'Работа')} · ${esc(r.door?.number||'Без номера')}</strong><div class="record-meta"><span>Выполнено: ${date(r.completed_at)}</span><span>${esc(r.user?.full_name||'')}</span><span>${Number(r.photos_count||0)} фото</span><span class="pill ${r.status==='voided'?'pending':'synced'}">${r.status==='voided'?'Аннулирована':'Действует'}</span></div><div class="hint">${r.completed_at_source==='device'?'Время выполнения с устройства':'Время выполнения по серверу'} · Получено сервером: ${date(r.received_at)}</div>${r.status==='voided'&&r.void_reason?`<div class="hint">Причина аннулирования: ${esc(r.void_reason)}</div>`:''}</div><div class="amount">${money(r.total_amount)}</div></article>`;}
-async async function logout(){
+async function logout(){
   if(navigator.onLine&&state.serverAuthenticated){try{await api('/auth/logout',{method:'POST',body:'{}'});}catch(_){}}
   state.user=null;state.csrf='';state.serverAuthenticated=false;await metaPut('auth',null);renderLogin();
 }
