@@ -108,6 +108,10 @@ async function renderNew(el){
   form.addEventListener('submit',async e=>{
     e.preventDefault();const fd=new FormData(form);const photos=Array.from(files.files||[]);
     if(!photos.length){document.getElementById('form-error').textContent='Добавьте хотя бы одну фотографию.';return;}
+    if(photos.length>10){document.getElementById('form-error').textContent='За одну работу можно приложить не более 10 фотографий.';return;}
+    if(photos.some(file=>!['image/jpeg','image/png','image/webp'].includes(file.type))){document.getElementById('form-error').textContent='Допустимы только JPEG, PNG и WebP.';return;}
+    if(photos.some(file=>file.size>15*1024*1024)){document.getElementById('form-error').textContent='Размер одного фото не должен превышать 15 МБ.';return;}
+    if(photos.reduce((sum,file)=>sum+file.size,0)>60*1024*1024){document.getElementById('form-error').textContent='Общий размер фотографий должен быть не более 60 МБ.';return;}
     if(fd.get('new_door')==='on'&&fd.get('door_number')){document.getElementById('form-error').textContent='Укажите номер существующей двери или отметьте новую дверь.';return;}
     const item={id:crypto.randomUUID(),idemKey:crypto.randomUUID(),createdLocal:new Date().toISOString(),status:'queued',data:{work_type_id:fd.get('work_type_id'),quantity:fd.get('quantity')||'1',door_number:fd.get('door_number').trim(),new_door:fd.get('new_door')==='on'?'true':'false',comment:fd.get('comment').trim(),completed_at:new Date().toISOString()},photos};
     const btn=form.querySelector('button[type="submit"]');btn.disabled=true;btn.textContent='Сохранение…';
