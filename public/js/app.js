@@ -235,23 +235,64 @@ async function renderHistory(el){
 }
 async function renderSettings(el){
   if(state.user.role!=='owner'){el.innerHTML='<div class="notice warn">Недостаточно прав.</div>';return;}
-  el.innerHTML=pageHead('Настройки','Пользователи, виды работ и индивидуальные расценки')+`<div id="settings-content"><div class="muted">Загрузка…</div></div>`;
-  const root=document.getElementById('settings-content');
+  el.innerHTML=pageHead('Пользователи','Создание и управление учётными записями')+`<div id="settings-content"><div class="muted">Загрузка…</div></div>`;
+  const root=el.querySelector('#settings-content');
   const load=async()=>{
     try{
-      const [usersData,typesData,ratesData]=await Promise.all([api('/users?per_page=200'),api('/work-types'),api('/rates?current=1&per_page=200')]);
-      const users=usersData.items||[],types=Array.isArray(typesData)?typesData:(typesData.items||[]),rates=ratesData.items||[];
-      const executors=users.filter(u=>u.is_active&&['master','owner'].includes(u.role));
-      const userOptions=executors.map(u=>`<option value="${u.id}">${esc(u.full_name)} · ${esc(roleLabel(u.role))}</option>`).join('');
+      const data=await api('/users?per_page=200');
+      const users=data.items||[];
+      root.innerHTML=`<div class="panel"><h3>Создать пользователя</h3><form id="user-create-form"><div class="form-grid"><div class="field"><label>ФИО</label><input name="full_name" required minlength="2" maxlength="190"></div><div class="field"><label>Логин</label><input name="username" required minlength="3" maxlength="100" pattern="[A-Za-z0-9._-]+"></div><div class="field"><label>Пароль (не менее 10 символов)</label><input name="password" type="password" required minlength="10" maxlength="200" autocomplete="new-password"></div><div class="field"><label>Роль</label><select name="role"><option value="master">Мастер</option><option value="director">Директор</option><option value="owner">Администратор</option></select></div></div><button class="btn" type="submit">Создать пользователя</button></form></div><div class="panel"><h3>Список пользователей</h3><div class="list">${users.map(u=>`<article class="record-card"><div class="record-main"><strong>${esc(u.full_name)}</strong><div class="record-meta"><span>@${esc(u.username)}</span><span>${esc(roleLabel(u.role))}</span><span class="pill ${u.is_active?'synced':'pending'}">${u.is_active?'Активен':'Отключён'}</span></div></div>${u.id!==state.user.id?'<button class="btn ghost" type="button" data-user-toggle="'+u.id+'" data-active="'+(u.is_active?'1':'0')+'">'+(u.is_active?'Отключить':'Включить')+'</button>':''}</article>`).join('')||'<div class="empty">Пользователей нет</div>'}</div></div>`;
+      root.querySelector('#user-create-form').addEventListener('submit',async e=>{
+        e.preventDefault();const form=e.currentTarget,button=form.querySelector('button');button.disabled=true;
+        try{const d=new FormData(form);await api('/users',{method:'POST',body:JSON.stringify({full_name:d.get('full_name'),username:d.get('username'),password:d.get('password'),role:d.get('role')})});toast('Пользователь создан');await load();}
+        catch(err){toast(err.message);}finally{button.disabled=false;}
+      });
+      root.querySelectorAll('[data-user-toggle]').forEach(button=>button.addEventListener('click',async()=>{
+        const action=button.dataset.active==='1'?'deactivate':'activate';
+        if(!confirm((action==='deactivate'?'Отключить':'Включить')+' пользователя?'))return;
+        button.disabled=true;
+        try{await api('/users/'+button.dataset.userToggle+'/'+action,{method:'POST',body:'{}'});toast('Статус пользователя изменён');await load();}
+        catch(err){toast(err.message);button.disabled=false;}
+      }));
+    }catch(err){root.innerHTML=`<div class="notice warn">${esc(err.message)}</div>`;}
+  };
+  await load();
+}
+
+async function renderWorkManagement(el){
+  if(state.user.role!=='director'){el.innerHTML='<div class="notice warn">Недостаточно прав.</div>';return;}
+  el.innerHTML=pageHead('Виды работ и тарифы','Управление производственными справочниками и индивидуальными расценками')+`<div id="work-management-content"><div class="muted">Загрузка…</div></div>`;
+  const root=el.querySelector('#work-management-content');
+  const load=async()=>{
+    try{
+      const [typesData,ratesData,executorsData]=await Promise.all([api('/work-types'),api('/rates?current=1&per_page=200'),api('/executors')]);
+      const types=Array.isArray(typesData)?typesData:(typesData.items||[]);
+      const rates=ratesData.items||[];
+      const executors=executorsData.items||[];
+      const userOptions=executors.map(u=>`<option value="${u.id}">${esc(u.full_name)}</option>`).join('');
       const typeOptions=types.filter(t=>t.is_active).map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');
-      root.innerHTML=`<div class="panel"><h3>Пользователи</h3><form id="user-create-form"><div class="form-grid"><div class="field"><label>ФИО</label><input name="full_name" required minlength="2" maxlength="190"></div><div class="field"><label>Логин</label><input name="username" required minlength="3" maxlength="100" pattern="[A-Za-z0-9._-]+"></div><div class="field"><label>Пароль (не менее 10 символов)</label><input name="password" type="password" required minlength="10" maxlength="200" autocomplete="new-password"></div><div class="field"><label>Роль</label><select name="role"><option value="master">Мастер</option><option value="director">Директор</option><option value="owner">Администратор</option></select></div></div><button class="btn" type="submit">Создать пользователя</button></form><div class="list" style="margin-top:18px">${users.map(u=>`<article class="record-card"><div class="record-main"><strong>${esc(u.full_name)}</strong><div class="record-meta"><span>@${esc(u.username)}</span><span>${esc(roleLabel(u.role))}</span><span class="pill ${u.is_active?'synced':'pending'}">${u.is_active?'Активен':'Отключён'}</span></div></div>${u.id!==state.user.id?'<button class="btn ghost" type="button" data-user-toggle="'+u.id+'" data-active="'+(u.is_active?'1':'0')+'">'+(u.is_active?'Отключить':'Включить')+'</button>':''}</article>`).join('')}</div></div><div class="panel"><h3>Виды работ</h3><form id="type-create-form"><div class="form-grid"><div class="field"><label>Название</label><input name="name" required minlength="2" maxlength="190"></div><div class="field"><label>Категория</label><select name="category"><option value="repair">Ремонт</option><option value="packing">Упаковка</option><option value="other">Дополнительные работы</option></select></div><div class="field"><label>Единица измерения</label><input name="unit" value="шт" required maxlength="40"></div><div class="field"><label>Описание</label><input name="description" maxlength="2000"></div></div><label class="checkline"><input type="checkbox" name="door_required" checked> Требуется привязка к двери</label><label class="checkline"><input type="checkbox" name="allow_multiple_per_door"> Разрешить несколько таких работ на одну дверь</label><button class="btn" type="submit">Создать вид работы</button></form><div class="list" style="margin-top:18px">${types.map(t=>`<article class="record-card"><div class="record-main"><strong>${esc(t.name)}</strong><div class="record-meta"><span>${({repair:'Ремонт',packing:'Упаковка',other:'Дополнительные'})[t.category]||t.category}</span><span>${esc(t.unit)}</span><span class="pill ${t.is_active?'synced':'pending'}">${t.is_active?'Активен':'Отключён'}</span></div></div><button class="btn ghost" type="button" data-type-toggle="${t.id}" data-active="${t.is_active?'1':'0'}">${t.is_active?'Отключить':'Включить'}</button></article>`).join('')}</div></div><div class="panel"><h3>Назначить расценку</h3><form id="rate-create-form"><div class="form-grid"><div class="field"><label>Исполнитель</label><select name="user_id" required>${userOptions}</select></div><div class="field"><label>Вид работы</label><select name="work_type_id" required>${typeOptions}</select></div><div class="field"><label>Цена за единицу, ₽</label><input type="number" name="unit_price" min="0" max="9999999.99" step="0.01" required></div></div><button class="btn" type="submit">Назначить расценку</button><div class="hint">Новая расценка закрывает предыдущую и начинает действовать с момента назначения.</div></form><div class="list" style="margin-top:18px">${rates.length?rates.map(rate=>`<article class="record-card"><div class="record-main"><strong>${esc(rate.user_name||'Исполнитель')} · ${esc(rate.work_type_name||'Вид работы')}</strong><div class="record-meta"><span>${money(rate.unit_price)} / единицу</span><span>С: ${date(rate.valid_from)}</span></div></div>${rate.valid_to===null?'<button class="btn ghost" type="button" data-rate-close="'+rate.id+'">Закрыть</button>':''}</article>`).join(''):'<div class="empty">Действующих расценок нет</div>'}</div></div>`;
-      document.getElementById('user-create-form').addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget,b=f.querySelector('button');b.disabled=true;try{const d=new FormData(f);await api('/users',{method:'POST',body:JSON.stringify({full_name:d.get('full_name'),username:d.get('username'),password:d.get('password'),role:d.get('role')})});toast('Пользователь создан');await load();}catch(err){toast(err.message);}finally{b.disabled=false;}});
-      document.getElementById('type-create-form').addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget,b=f.querySelector('button');b.disabled=true;try{const d=new FormData(f);await api('/work-types',{method:'POST',body:JSON.stringify({name:d.get('name'),category:d.get('category'),unit:d.get('unit'),description:d.get('description'),door_required:d.has('door_required'),allow_multiple_per_door:d.has('allow_multiple_per_door')})});toast('Вид работы создан');await load();}catch(err){toast(err.message);}finally{b.disabled=false;}});
-      document.getElementById('rate-create-form').addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget,b=f.querySelector('button');b.disabled=true;try{const d=new FormData(f);await api('/rates',{method:'POST',body:JSON.stringify({user_id:d.get('user_id'),work_type_id:d.get('work_type_id'),unit_price:d.get('unit_price')})});toast('Расценка назначена');await load();}catch(err){toast(err.message);}finally{b.disabled=false;}});
-      root.querySelectorAll('[data-user-toggle]').forEach(button=>button.addEventListener('click',async()=>{const action=button.dataset.active==='1'?'deactivate':'activate';if(!confirm((action==='deactivate'?'Отключить':'Включить')+' пользователя?'))return;button.disabled=true;try{await api('/users/'+button.dataset.userToggle+'/'+action,{method:'POST',body:'{}'});toast('Статус пользователя изменён');await load();}catch(e){toast(e.message);button.disabled=false;}}));
-      root.querySelectorAll('[data-type-toggle]').forEach(button=>button.addEventListener('click',async()=>{const action=button.dataset.active==='1'?'deactivate':'activate';button.disabled=true;try{await api('/work-types/'+button.dataset.typeToggle+'/'+action,{method:'POST',body:'{}'});toast('Статус вида работы изменён');await load();}catch(e){toast(e.message);button.disabled=false;}}));
-      root.querySelectorAll('[data-rate-close]').forEach(button=>button.addEventListener('click',async()=>{if(!confirm('Закрыть действие этой расценки?'))return;button.disabled=true;try{await api('/rates/'+button.dataset.rateClose+'/close',{method:'POST',body:'{}'});toast('Расценка закрыта');await load();}catch(e){toast(e.message);button.disabled=false;}}));
-    }catch(e){root.innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;}
+      root.innerHTML=`<div class="panel"><h3>Виды работ</h3><form id="type-create-form"><div class="form-grid"><div class="field"><label>Название</label><input name="name" required minlength="2" maxlength="190"></div><div class="field"><label>Категория</label><select name="category"><option value="repair">Ремонт</option><option value="packing">Упаковка</option><option value="other">Дополнительные работы</option></select></div><div class="field"><label>Единица измерения</label><input name="unit" value="шт" required maxlength="40"></div><div class="field"><label>Описание</label><input name="description" maxlength="2000"></div></div><label class="checkline"><input type="checkbox" name="door_required" checked> Требуется привязка к двери</label><label class="checkline"><input type="checkbox" name="allow_multiple_per_door"> Разрешить несколько таких работ на одну дверь</label><button class="btn" type="submit">Создать вид работы</button></form><div class="list" style="margin-top:18px">${types.map(t=>`<article class="record-card"><div class="record-main"><strong>${esc(t.name)}</strong><div class="record-meta"><span>${({repair:'Ремонт',packing:'Упаковка',other:'Дополнительные'})[t.category]||esc(t.category)}</span><span>${esc(t.unit)}</span><span class="pill ${t.is_active?'synced':'pending'}">${t.is_active?'Активен':'Отключён'}</span></div></div><button class="btn ghost" type="button" data-type-toggle="${t.id}" data-active="${t.is_active?'1':'0'}">${t.is_active?'Отключить':'Включить'}</button></article>`).join('')}</div></div><div class="panel"><h3>Индивидуальные расценки</h3><form id="rate-create-form"><div class="form-grid"><div class="field"><label>Исполнитель</label><select name="user_id" required>${userOptions}</select></div><div class="field"><label>Вид работы</label><select name="work_type_id" required>${typeOptions}</select></div><div class="field"><label>Цена за единицу, ₽</label><input type="number" name="unit_price" min="0" max="9999999.99" step="0.01" required></div></div><button class="btn" type="submit">Назначить расценку</button><div class="hint">Новая расценка закрывает предыдущую и начинает действовать с момента назначения.</div></form><div class="list" style="margin-top:18px">${rates.length?rates.map(rate=>`<article class="record-card"><div class="record-main"><strong>${esc(rate.user_name||'Исполнитель')} · ${esc(rate.work_type_name||'Вид работы')}</strong><div class="record-meta"><span>${money(rate.unit_price)} / единицу</span><span>С: ${date(rate.valid_from)}</span></div></div>${rate.valid_to===null?'<button class="btn ghost" type="button" data-rate-close="'+rate.id+'">Закрыть</button>':''}</article>`).join(''):'<div class="empty">Действующих расценок нет</div>'}</div></div>`;
+      root.querySelector('#type-create-form').addEventListener('submit',async e=>{
+        e.preventDefault();const form=e.currentTarget,button=form.querySelector('button');button.disabled=true;
+        try{const d=new FormData(form);await api('/work-types',{method:'POST',body:JSON.stringify({name:d.get('name'),category:d.get('category'),unit:d.get('unit'),description:d.get('description'),door_required:d.has('door_required'),allow_multiple_per_door:d.has('allow_multiple_per_door')})});toast('Вид работы создан');await load();}
+        catch(err){toast(err.message);}finally{button.disabled=false;}
+      });
+      root.querySelector('#rate-create-form').addEventListener('submit',async e=>{
+        e.preventDefault();const form=e.currentTarget,button=form.querySelector('button');button.disabled=true;
+        try{const d=new FormData(form);await api('/rates',{method:'POST',body:JSON.stringify({user_id:d.get('user_id'),work_type_id:d.get('work_type_id'),unit_price:d.get('unit_price')})});toast('Расценка назначена');await load();}
+        catch(err){toast(err.message);}finally{button.disabled=false;}
+      });
+      root.querySelectorAll('[data-type-toggle]').forEach(button=>button.addEventListener('click',async()=>{
+        const action=button.dataset.active==='1'?'deactivate':'activate';button.disabled=true;
+        try{await api('/work-types/'+button.dataset.typeToggle+'/'+action,{method:'POST',body:'{}'});toast('Статус вида работы изменён');await load();}
+        catch(err){toast(err.message);button.disabled=false;}
+      }));
+      root.querySelectorAll('[data-rate-close]').forEach(button=>button.addEventListener('click',async()=>{
+        if(!confirm('Закрыть действие этой расценки?'))return;button.disabled=true;
+        try{await api('/rates/'+button.dataset.rateClose+'/close',{method:'POST',body:'{}'});toast('Расценка закрыта');await load();}
+        catch(err){toast(err.message);button.disabled=false;}
+      }));
+    }catch(err){root.innerHTML=`<div class="notice warn">${esc(err.message)}</div>`;}
   };
   await load();
 }
@@ -266,7 +307,8 @@ async function renderStats(el){
     try{
       const [summary,typeData,daily]=await Promise.all([api('/stats/summary'+q),api('/stats/work-types'+q),api('/stats/daily'+q)]);
       const n=summary.counts||{},m=summary.money||{};
-      cards.innerHTML=[['Дверей',n.doors],['Операций',n.operations],['Ремонтов',n.repairs],['Упаковок',n.packings],['Дополнительных работ',n.other_works],['Начислено',money(m.accrued)],['Выплачено',m.paid===null?'—':money(m.paid)],['Задолженность',m.debt===null?'—':money(m.debt)]].map(([label,value])=>`<div class="stat-card"><span>${label}</span><strong>${value??0}</strong></div>`).join('');
+      const statCards=[['Дверей',n.doors],['Операций',n.operations],['Ремонтов',n.repairs],['Упаковок',n.packings],['Дополнительных работ',n.other_works],['Начислено',money(m.accrued)],['Выплачено',m.paid===null?'—':money(m.paid)],['Задолженность',m.debt===null?'—':money(m.debt)]];
+      cards.innerHTML=(state.user.role==='owner'?statCards.slice(0,5):statCards).map(([label,value])=>`<div class="stat-card"><span>${label}</span><strong>${value??0}</strong></div>`).join('');
       const rows=typeData.items||[];
       types.innerHTML=rows.length?rows.map(t=>`<article class="record-card"><div class="record-main"><strong>${esc(t.work_type.name)}</strong><div class="record-meta"><span>${t.works_count} операций</span><span>${t.doors_count} дверей</span><span>${esc(t.quantity)} ${esc(t.work_type.unit)}</span></div></div><div class="amount">${money(t.amount)}</div></article>`).join(''):'<div class="empty">Нет данных за выбранный период</div>';
       const dailyRows=daily.items||[];
@@ -294,8 +336,8 @@ function renderDoors(el){
   });
 }
 async function renderFinance(el){
-  const isAll=['owner','director'].includes(state.user.role);
-  const canManage=state.user.role==='owner';
+  const isAll=state.user.role==='director';
+  const canManage=state.user.role==='director';
   let paymentIdemKey=crypto.randomUUID();
   let paymentPayloadSignature=null;
   el.innerHTML=pageHead('Финансы',isAll?'Начисления, выплаты и задолженность':'Ваши начисления и выплаты')+`<form id="finance-filter" class="panel"><div class="form-grid"><div class="field"><label for="finance-from">Период с</label><input id="finance-from" name="date_from" type="date"></div><div class="field"><label for="finance-to">Период по</label><input id="finance-to" name="date_to" type="date"></div></div><div class="actions"><button class="btn" type="submit">Применить</button><button class="btn ghost" type="reset">Сбросить</button></div></form><div id="finance-summary" class="cards"></div><div id="report-panel"></div><div id="finance-admin"></div><div class="panel"><h3>Начисления за выбранный период</h3><div id="accrual-list" class="list"><div class="muted">Загрузка…</div></div><div id="accrual-pages" class="actions"></div></div><div class="panel"><h3>Выплаты</h3><div id="payment-list" class="list"><div class="muted">Загрузка…</div></div></div>`;
@@ -342,12 +384,11 @@ async function renderFinance(el){
   const loadAdmin=async()=>{
     if(!canManage)return;
     try{
-      const [masters,owners,runs]=await Promise.all([
-        api('/users?role=master&is_active=1&per_page=200'),
-        api('/users?role=owner&is_active=1&per_page=200'),
+      const [executorsData,runs]=await Promise.all([
+        api('/executors'),
         api('/payroll-runs?per_page=50')
       ]);
-      const users=[...(masters.items||[]),...(owners.items||[])];
+      const users=executorsData.items||[];
       const options=users.map(u=>`<option value="${u.id}">${esc(u.full_name)} · ${esc(roleLabel(u.role))}</option>`).join('');
       admin.innerHTML=`<div class="panel"><h3>Сформировать расчёт за период</h3><form id="payroll-create-form"><div class="form-grid"><div class="field"><label>Исполнитель</label><select name="user_id" required>${options}</select></div><div class="field"><label>Период с</label><input type="date" name="period_from" required></div><div class="field"><label>Период по</label><input type="date" name="period_to" required></div></div><button class="btn" type="submit">Сформировать черновик</button><div class="hint">В расчёт попадут действующие работы исполнителя, ещё не включённые в другой расчёт.</div></form></div><div class="panel"><h3>Создать выплату</h3><form id="payment-create-form"><div class="form-grid"><div class="field"><label>Получатель</label><select name="user_id" required>${options}</select></div><div class="field"><label>Сумма, ₽</label><input type="number" name="amount" min="0.01" step="0.01" required></div><div class="field"><label>Способ выплаты</label><select name="payment_method" required><option value="Банковский перевод">Банковский перевод</option><option value="Наличные">Наличные</option><option value="Карта">Карта</option></select></div><div class="field"><label>Дата выплаты</label><input type="datetime-local" name="payment_date"></div><div class="field span-2"><label>Номер операции / комментарий</label><input name="reference" maxlength="190" placeholder="Необязательно"></div></div><button class="btn" type="submit">Создать черновик выплаты</button><div class="hint">Сумма автоматически распределяется по самым ранним неоплаченным начислениям. Выплата не влияет на остаток до подтверждения.</div></form></div><div class="panel"><h3>Расчёты</h3><div id="payroll-run-list" class="list">${(runs.items||[]).length?(runs.items||[]).map(run=>`<article class="record-card"><div class="record-main"><strong>${esc(run.user?.full_name||'Исполнитель')} · ${money(run.total_amount)}</strong><div class="record-meta"><span>${esc(run.period_from)} — ${esc(run.period_to)}</span><span class="pill ${run.status==='confirmed'?'synced':'pending'}">${({draft:'Черновик',confirmed:'Подтверждён',cancelled:'Отменён'})[run.status]||run.status}</span></div></div>${run.status==='draft'?'<button class="btn" type="button" data-confirm-run="'+run.id+'">Подтвердить</button>':''}</article>`).join(''):'<div class="empty">Расчётов пока нет</div>'}</div></div>`;
       document.getElementById('payroll-create-form').addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget;const b=f.querySelector('button');b.disabled=true;try{const d=new FormData(f);await api('/payroll-runs',{method:'POST',body:JSON.stringify({user_id:d.get('user_id'),period_from:d.get('period_from'),period_to:d.get('period_to')})});toast('Черновик расчёта создан');await loadAdmin();}catch(err){toast(err.message);}finally{b.disabled=false;}});
