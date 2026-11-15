@@ -167,11 +167,13 @@ async function syncQueue(){
         await queueDelete(item.id);toast('Работа отправлена на сервер');
       }catch(err){
         item.status='error';item.error=err.message;await queuePut(item);
-        if(err.status===401||err.status===403||err.status===413||err.status===422||err.status===409)continue;
+        if(err.status===401){state.user=null;state.csrf='';await metaPut('auth',null);renderLogin('Сессия завершена. Войдите снова — очередь сохранена на устройстве.');break;}
+        if(err.status===403){toast('Недостаточно прав для синхронизации. Очередь сохранена.');break;}
+        if([413,422,409].includes(err.status))continue;
         break;
       }
     }
-  }finally{state.busy=false;if(state.page==='queue')renderPage();if(state.page==='home')renderPage();}
+  }finally{state.busy=false;if(state.user&&(state.page==='queue'||state.page==='home'))renderPage();}
 }
 async function renderHistory(el){
   const typeOptions=state.workTypes.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
