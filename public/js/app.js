@@ -118,7 +118,7 @@ async function renderNew(el){
     const selectedType=state.workTypes.find(t=>String(t.id)===String(fd.get('work_type_id')));
     const doorNumber=String(fd.get('door_number')||'').trim();
     if(selectedType?.door_required&&!doorNumber&&fd.get('new_door')!=='on'){document.getElementById('form-error').textContent='Для выбранного вида работы необходимо указать дверь или создать новую.';return;}
-    if(doorNumber&&!/^D-\\d{6,12}$/i.test(doorNumber)){document.getElementById('form-error').textContent='Номер двери должен иметь формат D-000123.';return;}
+    if(doorNumber&&!/^D-\d{6,12}$/i.test(doorNumber)){document.getElementById('form-error').textContent='Номер двери должен иметь формат D-000123.';return;}
     if(fd.get('new_door')==='on'&&doorNumber){document.getElementById('form-error').textContent='Укажите номер существующей двери или отметьте новую дверь.';return;}
     const item={id:crypto.randomUUID(),idemKey:crypto.randomUUID(),createdLocal:new Date().toISOString(),status:'queued',data:{work_type_id:fd.get('work_type_id'),quantity:fd.get('quantity')||'1',door_number:fd.get('door_number').trim(),new_door:fd.get('new_door')==='on'?'true':'false',comment:fd.get('comment').trim(),completed_at:new Date().toISOString()},photos};
     const btn=form.querySelector('button[type="submit"]');btn.disabled=true;btn.textContent='Сохранение…';
