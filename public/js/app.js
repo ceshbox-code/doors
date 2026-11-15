@@ -191,12 +191,15 @@ async function renderHistory(el){
 }
 async function renderFinance(el){
   const isAll=['owner','director'].includes(state.user.role);
-  el.innerHTML=pageHead('Финансы',isAll?'Начисления, выплаты и задолженность':'Ваши начисления и выплаты')+`<form id="finance-filter" class="panel"><div class="form-grid"><div class="field"><label for="finance-from">Период с</label><input id="finance-from" name="date_from" type="date"></div><div class="field"><label for="finance-to">Период по</label><input id="finance-to" name="date_to" type="date"></div></div><div class="actions"><button class="btn" type="submit">Применить</button><button class="btn ghost" type="reset">Сбросить</button></div></form><div id="finance-summary" class="cards"></div><div class="panel"><h3>Начисления за выбранный период</h3><div id="accrual-list" class="list"><div class="muted">Загрузка…</div></div><div id="accrual-pages" class="actions"></div></div><div class="panel"><h3>Выплаты</h3><div id="payment-list" class="list"><div class="muted">Загрузка…</div></div></div>`;
+  const canManage=state.user.role==='owner';
+  let paymentIdemKey=crypto.randomUUID();
+  el.innerHTML=pageHead('Финансы',isAll?'Начисления, выплаты и задолженность':'Ваши начисления и выплаты')+`<form id="finance-filter" class="panel"><div class="form-grid"><div class="field"><label for="finance-from">Период с</label><input id="finance-from" name="date_from" type="date"></div><div class="field"><label for="finance-to">Период по</label><input id="finance-to" name="date_to" type="date"></div></div><div class="actions"><button class="btn" type="submit">Применить</button><button class="btn ghost" type="reset">Сбросить</button></div></form><div id="finance-summary" class="cards"></div><div id="finance-admin"></div><div class="panel"><h3>Начисления за выбранный период</h3><div id="accrual-list" class="list"><div class="muted">Загрузка…</div></div><div id="accrual-pages" class="actions"></div></div><div class="panel"><h3>Выплаты</h3><div id="payment-list" class="list"><div class="muted">Загрузка…</div></div></div>`;
   const form=document.getElementById('finance-filter');
   const summary=document.getElementById('finance-summary');
   const list=document.getElementById('accrual-list');
   const pages=document.getElementById('accrual-pages');
   const paymentList=document.getElementById('payment-list');
+  const admin=document.getElementById('finance-admin');
   const load=async(page=1)=>{
     const params=new URLSearchParams({page:String(page),per_page:'50',payment_state:'all',status:'active'});
     for(const key of ['date_from','date_to']){const value=form.elements[key].value;if(value)params.set(key,value);}
@@ -206,14 +209,15 @@ async function renderFinance(el){
       if(isAll)tasks.push(api('/finance/summary?'+params.toString()));
       else tasks.push(api('/finance/users/'+encodeURIComponent(state.user.id)+'?'+params.toString()));
       const [accruals,payments,finance]=await Promise.all(tasks);
-      const totals=isAll?finance.totals:finance.totals;
+      const totals=finance.totals;
       summary.innerHTML=[
         ['Начислено за всё время',totals.accrued],['Выплачено за всё время',totals.paid],['Задолженность',totals.debt??totals.debt_total],['Переплата',totals.overpayment??totals.overpayment_total]
       ].map(([label,value])=>`<div class="stat-card"><span>${label}</span><strong>${money(value)}</strong></div>`).join('');
       const rows=accruals.items||[];
       list.innerHTML=rows.length?rows.map(a=>`<article class="record-card"><div class="record-main"><strong>${esc(a.work_type?.name||'Работа')} · ${esc(a.door_number||'Без номера')}</strong><div class="record-meta"><span>${date(a.completed_at)}</span><span>${esc(a.user?.full_name||'')}</span><span>${esc(a.quantity)} ${esc(a.unit)}</span><span class="pill ${a.payment_state==='paid'?'synced':'pending'}">${({unpaid:'Не выплачено',partial:'Частично',paid:'Выплачено',voided:'Аннулировано'})[a.payment_state]||a.payment_state}</span></div><div class="hint">Начислено: ${money(a.total_amount)} · Выплачено: ${money(a.paid)} · Остаток: ${money(a.outstanding)}</div></div></article>`).join(''):'<div class="empty">Начислений за выбранный период нет</div>';
       const paymentRows=payments.items||[];
-      paymentList.innerHTML=paymentRows.length?paymentRows.map(p=>`<article class="record-card"><div class="record-main"><strong>${esc(p.user?.full_name||'Получатель')} · ${money(p.amount)}</strong><div class="record-meta"><span>${date(p.payment_date)}</span><span>${esc(p.payment_method)}</span><span class="pill ${p.status==='posted'?'synced':'pending'}">${({draft:'Черновик',posted:'Подтверждена',cancelled:'Отменена'})[p.status]||p.status}</span></div>${p.reference?`<div class="hint">Операция: ${esc(p.reference)}</div>`:''}</div></article>`).join(''):'<div class="empty">Выплат за выбранный период нет</div>';
+      paymentList.innerHTML=paymentRows.length?paymentRows.map(p=>`<article class="record-card"><div class="record-main"><strong>${esc(p.user?.full_name||'Получатель')} · ${money(p.amount)}</strong><div class="record-meta"><span>${date(p.payment_date)}</span><span>${esc(p.payment_method)}</span><span class="pill ${p.status==='posted'?'synced':'pending'}">${({draft:'Черновик',posted:'Подтверждена',cancelled:'Отменена'})[p.status]||p.status}</span></div>${p.reference?`<div class="hint">Операция: ${esc(p.reference)}</div>`:''}</div>${canManage&&p.status==='draft'?'<button class="btn" type="button" data-post-payment="'+p.id+'">Подтвердить</button>':''}</article>`).join(''):'<div class="empty">Выплат за выбранный период нет</div>';
+      paymentList.querySelectorAll('[data-post-payment]').forEach(button=>button.addEventListener('click',async()=>{button.disabled=true;try{await api('/payments/'+button.dataset.postPayment+'/post',{method:'POST',body:'{}'});toast('Выплата подтверждена');await load(page);}catch(e){toast(e.message);button.disabled=false;}}));
       const current=accruals.page||page,totalPages=Math.max(1,Math.ceil((accruals.total||0)/(accruals.per_page||50)));
       if(current>1)pages.insertAdjacentHTML('beforeend','<button class="btn secondary" id="accrual-prev" type="button">← Назад</button>');
       if(current<totalPages)pages.insertAdjacentHTML('beforeend','<button class="btn secondary" id="accrual-next" type="button">Далее →</button>');
@@ -221,9 +225,25 @@ async function renderFinance(el){
       document.getElementById('accrual-next')?.addEventListener('click',()=>load(current+1));
     }catch(e){list.innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;summary.innerHTML='';}
   };
+  const loadAdmin=async()=>{
+    if(!canManage)return;
+    try{
+      const [masters,owners,runs]=await Promise.all([
+        api('/users?role=master&is_active=1&per_page=200'),
+        api('/users?role=owner&is_active=1&per_page=200'),
+        api('/payroll-runs?per_page=50')
+      ]);
+      const users=[...(masters.items||[]),...(owners.items||[])];
+      const options=users.map(u=>`<option value="${u.id}">${esc(u.full_name)} · ${esc(roleLabel(u.role))}</option>`).join('');
+      admin.innerHTML=`<div class="panel"><h3>Сформировать расчёт за период</h3><form id="payroll-create-form"><div class="form-grid"><div class="field"><label>Исполнитель</label><select name="user_id" required>${options}</select></div><div class="field"><label>Период с</label><input type="date" name="period_from" required></div><div class="field"><label>Период по</label><input type="date" name="period_to" required></div></div><button class="btn" type="submit">Сформировать черновик</button><div class="hint">В расчёт попадут действующие работы исполнителя, ещё не включённые в другой расчёт.</div></form></div><div class="panel"><h3>Создать выплату</h3><form id="payment-create-form"><div class="form-grid"><div class="field"><label>Получатель</label><select name="user_id" required>${options}</select></div><div class="field"><label>Сумма, ₽</label><input type="number" name="amount" min="0.01" step="0.01" required></div><div class="field"><label>Способ выплаты</label><select name="payment_method" required><option value="Банковский перевод">Банковский перевод</option><option value="Наличные">Наличные</option><option value="Карта">Карта</option></select></div><div class="field"><label>Дата выплаты</label><input type="datetime-local" name="payment_date"></div><div class="field span-2"><label>Номер операции / комментарий</label><input name="reference" maxlength="190" placeholder="Необязательно"></div></div><button class="btn" type="submit">Создать черновик выплаты</button><div class="hint">Сумма автоматически распределяется по самым ранним неоплаченным начислениям. Выплата не влияет на остаток до подтверждения.</div></form></div><div class="panel"><h3>Расчёты</h3><div id="payroll-run-list" class="list">${(runs.items||[]).length?(runs.items||[]).map(run=>`<article class="record-card"><div class="record-main"><strong>${esc(run.user?.full_name||'Исполнитель')} · ${money(run.total_amount)}</strong><div class="record-meta"><span>${esc(run.period_from)} — ${esc(run.period_to)}</span><span class="pill ${run.status==='confirmed'?'synced':'pending'}">${({draft:'Черновик',confirmed:'Подтверждён',cancelled:'Отменён'})[run.status]||run.status}</span></div></div>${run.status==='draft'?'<button class="btn" type="button" data-confirm-run="'+run.id+'">Подтвердить</button>':''}</article>`).join(''):'<div class="empty">Расчётов пока нет</div>'}</div></div>`;
+      document.getElementById('payroll-create-form').addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget;const b=f.querySelector('button');b.disabled=true;try{const d=new FormData(f);await api('/payroll-runs',{method:'POST',body:JSON.stringify({user_id:d.get('user_id'),period_from:d.get('period_from'),period_to:d.get('period_to')})});toast('Черновик расчёта создан');await loadAdmin();}catch(err){toast(err.message);}finally{b.disabled=false;}});
+      document.getElementById('payment-create-form').addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget;const b=f.querySelector('button');b.disabled=true;try{const d=new FormData(f);const payload={user_id:d.get('user_id'),amount:d.get('amount'),payment_method:d.get('payment_method'),reference:d.get('reference'),post:false};const dateValue=d.get('payment_date');if(dateValue)payload.payment_date=new Date(dateValue).toISOString();await api('/payments',{method:'POST',headers:{'Idempotency-Key':paymentIdemKey},body:JSON.stringify(payload)});paymentIdemKey=crypto.randomUUID();f.reset();toast('Черновик выплаты создан');await load(1);}catch(err){toast(err.message);}finally{b.disabled=false;}});
+      document.querySelectorAll('[data-confirm-run]').forEach(button=>button.addEventListener('click',async()=>{button.disabled=true;try{await api('/payroll-runs/'+button.dataset.confirmRun+'/confirm',{method:'POST',body:'{}'});toast('Расчёт подтверждён');await loadAdmin();}catch(e){toast(e.message);button.disabled=false;}}));
+    }catch(e){admin.innerHTML=`<div class="notice warn">Не удалось загрузить инструменты расчётов и выплат: ${esc(e.message)}</div>`;}
+  };
   form.addEventListener('submit',e=>{e.preventDefault();load(1);});
   form.addEventListener('reset',()=>setTimeout(()=>load(1),0));
-  await load(1);
+  await Promise.all([load(1),loadAdmin()]);
 }
 function recordHtml(r){return `<article class="record-card"><div class="record-main"><strong>${esc(r.work_type?.name||'Работа')} · ${esc(r.door?.number||'Без номера')}</strong><div class="record-meta"><span>Выполнено: ${date(r.completed_at)}</span><span>${esc(r.user?.full_name||'')}</span><span>${Number(r.photos_count||0)} фото</span></div><div class="hint">${r.completed_at_source==='device'?'Время выполнения с устройства':'Время выполнения по серверу'} · Получено сервером: ${date(r.received_at)}</div></div><div class="amount">${money(r.total_amount)}</div></article>`;}
 async function logout(){
