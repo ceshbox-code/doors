@@ -25,12 +25,12 @@ final class PermissionsTest extends TestCase
 
     public function testMasterCanRegisterAndViewOnlyOwnScope(): void
     {
-        foreach (['work.register', 'work.view_own', 'work_types.view', 'doors.lookup', 'finance.view_own'] as $permission) {
+        foreach (['work.register', 'work.view_own', 'work_types.view', 'doors.lookup', 'finance.view_own', 'stats.view', 'reports.export_own'] as $permission) {
             $this->assertTrue(Permissions::can('master', $permission), $permission);
         }
         foreach ([
             'users.manage', 'executors.view', 'rates.manage', 'finance.manage',
-            'finance.view_all', 'work.view_all', 'work.void', 'stats.view',
+            'finance.view_all', 'work.view_all', 'work.void',
             'stats.view_details', 'reports.export', 'photos.view', 'photos.delete',
         ] as $permission) {
             $this->assertFalse(Permissions::can('master', $permission), $permission);
