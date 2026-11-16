@@ -136,7 +136,7 @@ async function renderHome(el){
   el.innerHTML=pageHead('Рабочий обзор','Состояние учёта выполненных работ')+`<div class="cards">${isMaster?'<div class="stat-card"><span>Ожидают отправки</span><strong id="pending-count">…</strong></div>':''}<div class="stat-card"><span>Подключение</span><strong style="font-size:20px">${state.online?'Онлайн':'Офлайн'}</strong></div><div class="stat-card"><span>Пользователь</span><strong style="font-size:18px">${esc(state.user.full_name||'')}</strong></div></div><div class="panel"><h3>Быстрые действия</h3><div class="actions">${isMaster?'<button class="btn" data-nav="new">＋ Зарегистрировать работу</button><button class="btn secondary" data-nav="queue">Открыть очередь</button>':''}<button class="btn secondary" data-nav="history">История работ</button>${role==='director'?'<button class="btn secondary" data-nav="work-management">Виды работ и тарифы</button><button class="btn secondary" data-nav="finance">Финансы и выплаты</button>':''}</div></div><div class="panel"><h3>Последние работы</h3><div id="recent-list" class="list"><div class="muted">Загрузка…</div></div></div>`;
   el.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.nav)));
   if(isMaster){const queue=await queueAll().catch(()=>[]);const pc=el.querySelector('#pending-count');if(pc)pc.textContent=queue.filter(q=>Number(q.ownerUserId)===Number(state.user.id)).length;}
-  try{const data=await api('/work-records?per_page=5');const rows=data.items||[];const list=el.querySelector('#recent-list');if(list){list.innerHTML=rows.length?rows.map(recordHtml).join(''):'<div class="empty">Записей пока нет</div>';bindPhotoActions(list);}}
+  try{const data=await api('/work-records?per_page=5');const rows=data.items||[];const list=el.querySelector('#recent-list');if(list){list.innerHTML=rows.length?rows.map(recordHtml).join(''):'<div class="empty">Записей пока нет</div>';bindWorkCards(list);}}
   catch(e){const list=el.querySelector('#recent-list');if(list)list.innerHTML=`<div class="notice warn">${esc(e.message)}</div>`;}
 }
 async function renderNew(el){
@@ -221,7 +221,7 @@ async function renderHistory(el){
       const data=await api('/work-records?'+params.toString());
       const rows=data.items||[];
       list.innerHTML=rows.length?rows.map(recordHtml).join(''):'<div class="empty">По заданным условиям записи не найдены</div>';
-      bindPhotoActions(list);
+      bindWorkCards(list);
       summary.textContent=`Найдено: ${data.total||0}. Страница ${data.page||page} из ${Math.max(1,Math.ceil((data.total||0)/(data.per_page||50)))}`;
       const current=data.page||page,totalPages=Math.max(1,Math.ceil((data.total||0)/(data.per_page||50)));
       if(current>1)pages.insertAdjacentHTML('beforeend','<button class="btn secondary" id="history-prev" type="button">← Назад</button>');
@@ -333,7 +333,7 @@ function renderDoors(el){
       const history=door.history||[];
       const types=door.registered_work_types||[];
       result.innerHTML=`<div class="panel"><div class="page-head"><div><h2>${esc(door.number)}</h2><p>Создана: ${date(door.created_at)}</p></div><span class="pill">${door.status==='active'?'Активна':esc(door.status||'Дверь')}</span></div><h3>Виды работ</h3><div class="record-meta">${(history.length?[...new Map(history.map(r=>[r.work_type.id,r.work_type.name])).entries()].map(x=>x[1]):types.map(t=>t.name)).map(n=>`<span class="pill">${esc(n)}</span>`).join('')||'Нет зарегистрированных работ'}</div></div>${door.history!==undefined?`<div class="panel"><h3>История работ</h3><div class="list">${history.length?history.map(recordHtml).join(''):'<div class="empty">История работ пуста</div>'}</div></div>`:''}`;
-      bindPhotoActions(result);
+      bindWorkCards(result);
     }catch(err){result.innerHTML=`<div class="notice warn">${esc(err.message)}</div>`;}
   });
 }
@@ -405,45 +405,125 @@ async function renderFinance(el){
 
 function recordHtml(r){
   const count=Number(r.photos_count||0);
-  return `<article class="record-card"><div class="record-main"><strong>${esc(r.work_type?.name||'Работа')} · ${esc(r.door?.number||'Без номера')}</strong><div class="record-meta"><span>Выполнено: ${date(r.completed_at)}</span><span>${esc(r.user?.full_name||'')}</span><span>${count} фото</span><span class="pill ${r.status==='voided'?'pending':'synced'}">${r.status==='voided'?'Аннулирована':'Действует'}</span></div><div class="hint">${r.completed_at_source==='device'?'Время выполнения с устройства':'Время выполнения по серверу'} · Получено сервером: ${date(r.received_at)}</div>${count?'<button class="btn ghost" type="button" data-photo-record="'+r.id+'">Показать фотографии ('+count+')</button><div class="photo-gallery" data-photo-gallery="'+r.id+'"></div>':''}${r.status==='voided'&&r.void_reason?`<div class="hint">Причина аннулирования: ${esc(r.void_reason)}</div>`:''}</div><div class="amount">${money(r.total_amount)}</div></article>`;
+  const title=(r.work_type?.name||'Работа')+' · '+(r.door?.number||'Без номера');
+  return `<article class="record-card work-record-card" data-work-record="${esc(r.id)}" tabindex="0" role="button" aria-label="Открыть работу ${esc(title)}">
+    <div class="record-main"><strong>${esc(title)}</strong><div class="record-meta"><span>Выполнено: ${date(r.completed_at)}</span><span>${esc(r.user?.full_name||'')}</span><span>${count} фото</span><span class="pill ${r.status==='voided'?'pending':'synced'}">${r.status==='voided'?'Аннулирована':'Действует'}</span></div><div class="hint">${r.completed_at_source==='device'?'Время выполнения с устройства':'Время выполнения по серверу'} · Получено сервером: ${date(r.received_at)}</div></div>
+    <div class="work-card-trailing"><div class="amount">${money(r.total_amount)}</div><span class="work-card-open">Подробнее →</span></div>
+  </article>`;
 }
-function bindPhotoActions(container){
-  container.querySelectorAll('[data-photo-record]').forEach(button=>button.addEventListener('click',async()=>{
-    const id=button.dataset.photoRecord;
-    const gallery=container.querySelector('[data-photo-gallery="'+id+'"]');
-    if(!gallery)return;
-    if(gallery.dataset.loaded==='1'){
-      gallery.hidden=!gallery.hidden;
-      button.textContent=gallery.hidden?'Показать фотографии':'Скрыть фотографии';
-      return;
-    }
-    button.disabled=true;button.textContent='Загрузка фотографий…';
-    try{
-      const photos=await api('/work-records/'+encodeURIComponent(id)+'/photos');
-      if(!Array.isArray(photos)||!photos.length)gallery.innerHTML='<span class="muted">Фотографии не найдены</span>';
-      else gallery.innerHTML=photos.map(photo=>`<a href="${esc(photo.original_url||photo.url)}" target="_blank" rel="noopener noreferrer"><img src="${esc(photo.url)}" alt="Фото выполненной работы" loading="lazy" style="max-width:180px;max-height:160px;object-fit:contain;border-radius:8px"></a>`).join('');
-      gallery.dataset.loaded='1';gallery.hidden=false;button.textContent='Скрыть фотографии';
-    }catch(err){gallery.innerHTML=`<span class="error">${esc(err.message)}</span>`;button.textContent='Повторить загрузку';}
-    finally{button.disabled=false;}
-  }));
+function bindWorkCards(container){
+  if(!container||container.dataset.workCardsBound==='1')return;
+  container.dataset.workCardsBound='1';
+  container.addEventListener('click',e=>{
+    const card=e.target.closest('[data-work-record]');
+    if(!card||!container.contains(card)||e.target.closest('button,a,input,select,textarea'))return;
+    openWorkModal(card.dataset.workRecord);
+  });
+  container.addEventListener('keydown',e=>{
+    if(e.key!=='Enter'&&e.key!==' ')return;
+    const card=e.target.closest('[data-work-record]');
+    if(!card||!container.contains(card))return;
+    e.preventDefault();openWorkModal(card.dataset.workRecord);
+  });
+}
+async function openWorkModal(id){
+  if(document.getElementById('work-record-modal'))return;
+  if(!document.getElementById('work-modal-styles')){
+    const style=document.createElement('style');style.id='work-modal-styles';
+    style.textContent=`
+      .work-record-card{cursor:pointer;transition:border-color .16s,transform .16s,box-shadow .16s}
+      .work-record-card:hover,.work-record-card:focus-visible{border-color:var(--blue,#55b9e9);outline:none;transform:translateY(-1px);box-shadow:0 8px 24px #0002}
+      .work-card-trailing{display:grid;justify-items:end;gap:8px;flex:0 0 auto}
+      .work-card-open{font-size:12px;color:var(--blue,#55b9e9);font-weight:650}
+      .work-modal-backdrop{position:fixed;inset:0;z-index:1000;background:#07111dcc;display:grid;place-items:center;padding:20px;overflow:auto}
+      .work-modal{width:min(760px,100%);max-height:min(88vh,900px);overflow:auto;background:var(--surface,#17243a);color:var(--text,#dce7f5);border:1px solid var(--line,#2b3d59);border-radius:18px;box-shadow:0 24px 80px #0008}
+      .work-modal-head{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:20px 22px;background:var(--surface,#17243a);border-bottom:1px solid var(--line,#2b3d59)}
+      .work-modal-head h2{margin:0;font-size:19px;line-height:1.35}
+      .work-modal-sub{margin-top:5px;color:var(--muted,#8498b5);font-size:12px}
+      .work-modal-close{border:0;background:transparent;color:inherit;font-size:27px;line-height:1;padding:0 4px;cursor:pointer}
+      .work-modal-body{padding:20px 22px}
+      .work-modal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+      .work-modal-field{min-width:0;padding:13px 14px;background:var(--bg,#101a2d);border:1px solid var(--line,#2b3d59);border-radius:11px}
+      .work-modal-field span{display:block;color:var(--muted,#8498b5);font-size:11px;margin-bottom:6px}
+      .work-modal-field strong{display:block;font-size:14px;overflow-wrap:anywhere;font-weight:650}
+      .work-modal-section{margin-top:20px}
+      .work-modal-section h3{font-size:14px;margin:0 0 10px}
+      .work-modal-comment{white-space:pre-wrap;overflow-wrap:anywhere;padding:13px 14px;background:var(--bg,#101a2d);border:1px solid var(--line,#2b3d59);border-radius:11px;font-size:13px}
+      .work-modal-photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+      .work-modal-photos a{display:block;aspect-ratio:4/3;border:1px solid var(--line,#2b3d59);border-radius:10px;overflow:hidden;background:var(--bg,#101a2d)}
+      .work-modal-photos img{width:100%;height:100%;object-fit:cover;display:block}
+      .work-modal-loading{padding:38px 20px;text-align:center;color:var(--muted,#8498b5)}
+      @media(max-width:560px){.work-modal-backdrop{padding:8px;align-items:end}.work-modal{max-height:94vh;border-radius:16px}.work-modal-head,.work-modal-body{padding:16px}.work-modal-grid{grid-template-columns:1fr 1fr}.work-modal-field{padding:11px}.work-modal-field strong{font-size:13px}.work-card-open{display:none}}
+      @media(max-width:360px){.work-modal-grid{grid-template-columns:1fr}}
+    `;
+    document.head.append(style);
+  }
+  const previousOverflow=document.body.style.overflow;
+  const root=document.createElement('div');root.id='work-record-modal';root.className='work-modal-backdrop';
+  root.innerHTML='<section class="work-modal" role="dialog" aria-modal="true" aria-labelledby="work-modal-title"><div class="work-modal-loading">Загрузка карточки работы…</div></section>';
+  document.body.append(root);document.body.style.overflow='hidden';
+  const close=()=>{document.removeEventListener('keydown',onKey);root.remove();document.body.style.overflow=previousOverflow;};
+  const onKey=e=>{if(e.key==='Escape')close();};
+  document.addEventListener('keydown',onKey);
+  root.addEventListener('click',e=>{if(e.target===root||e.target.closest('[data-modal-close]'))close();});
+  try{
+    const r=await api('/work-records/'+encodeURIComponent(id));
+    const photos=Array.isArray(r.photos)?r.photos:[];
+    const status=r.status==='voided'?'Аннулирована':'Действует';
+    const fields=[
+      ['Исполнитель',r.user?.full_name||'—'],
+      ['Дверь',r.door?.number||'Без номера'],
+      ['Дата выполнения',date(r.completed_at)],
+      ['Получено сервером',date(r.received_at)],
+      ['Количество',String(r.quantity??'—')+' '+String(r.unit||'')],
+      ['Цена за единицу',money(r.unit_price)],
+      ['Начислено',money(r.total_amount)],
+      ['Статус',status],
+      ['Создал запись',r.created_by?.full_name||'—'],
+      ['Дата регистрации',date(r.created_at)]
+    ];
+    const section=(title,body)=>'<div class="work-modal-section"><h3>'+title+'</h3>'+body+'</div>';
+    const html=`
+      <div class="work-modal-head"><div><h2 id="work-modal-title">${esc(r.work_type?.name||'Работа')} · ${esc(r.door?.number||'Без номера')}</h2><div class="work-modal-sub">Запись №${esc(r.id)} · ${esc(status)}</div></div><button class="work-modal-close" type="button" data-modal-close aria-label="Закрыть">×</button></div>
+      <div class="work-modal-body">
+        <div class="work-modal-grid">${fields.map(([label,value])=>'<div class="work-modal-field"><span>'+esc(label)+'</span><strong>'+esc(value)+'</strong></div>').join('')}</div>
+        ${r.completed_at_source==='device'?'<div class="hint" style="margin-top:12px">Время выполнения указано с устройства исполнителя.</div>':''}
+        ${r.comment?section('Комментарий','<div class="work-modal-comment">'+esc(r.comment)+'</div>'):''}
+        ${r.status==='voided'&&r.void_reason?section('Причина аннулирования','<div class="work-modal-comment">'+esc(r.void_reason)+'</div>'):''}
+        ${section('Фотографии ('+photos.length+')',photos.length?'<div class="work-modal-photos">'+photos.map(photo=>'<a href="'+esc(photo.original_url||photo.url)+'" target="_blank" rel="noopener noreferrer" title="Открыть оригинал"><img src="'+esc(photo.url)+'" alt="Фото выполненной работы" loading="lazy"></a>').join('')+'</div>':'<div class="muted">Фотографии не найдены</div>')}
+      </div>`;
+    const dialog=root.querySelector('.work-modal');dialog.innerHTML=html;
+    root.querySelector('[data-modal-close]')?.focus();
+  }catch(err){
+    const dialog=root.querySelector('.work-modal');
+    if(dialog)dialog.innerHTML='<div class="work-modal-head"><div><h2>Не удалось открыть работу</h2></div><button class="work-modal-close" type="button" data-modal-close aria-label="Закрыть">×</button></div><div class="work-modal-body"><div class="notice warn">'+esc(err.message)+'</div></div>';
+    root.querySelector('[data-modal-close]')?.focus();
+  }
 }
 async function logout(){
   if(navigator.onLine&&state.serverAuthenticated){try{await api('/auth/logout',{method:'POST',body:'{}'});}catch(_){}}
   state.user=null;state.csrf='';state.serverAuthenticated=false;await metaPut('auth',null);renderLogin();
 }
 async function reconnectAndSync(){
-  if(!navigator.onLine||!state.user)return;
+  if(!navigator.onLine||!state.user||reconnecting)return;
+  reconnecting=true;
   try{
     const data=await api('/auth/me');
     state.user=data.user;state.csrf=data.csrf_token;state.serverAuthenticated=true;
     await metaPut('auth',{user:state.user});
     await loadWorkTypes();
-    render();
     await syncQueue();
   }catch(e){
     state.serverAuthenticated=false;state.csrf='';
-    if(e.status===401){state.user=null;await metaPut('auth',null);renderLogin('Сессия завершена. Войдите снова — локальная очередь сохранена.');}
-    else if(state.user){render();toast('Сервер пока недоступен. Работы останутся на устройстве.');}
+    if(e.status===401){
+      state.user=null;
+      await metaPut('auth',null);
+      renderLogin('Сессия завершена. Войдите снова — локальная очередь сохранена.');
+    }else if(state.user){
+      toast('Сервер пока недоступен. Работы останутся на устройстве.');
+    }
+  }finally{
+    reconnecting=false;
   }
 }
 window.addEventListener('online',()=>{state.online=true;if(state.user){render();reconnectAndSync();}else renderLogin();});
