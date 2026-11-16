@@ -82,12 +82,52 @@ async function boot(){
   }catch(e){renderLogin(e.message);}
 }
 
+let loginCaptchaId='';
+
+async function refreshLoginCaptcha(){
+  const question=document.getElementById('captcha-question');
+  const input=document.getElementById('captcha-answer');
+  if(question)question.textContent='Загрузка…';
+  try{
+    const data=await api('/auth/captcha');
+    loginCaptchaId=data.id;
+    if(question)question.textContent=data.question;
+    if(input)input.value='';
+  }catch(err){
+    loginCaptchaId='';
+    if(question)question.textContent='Не удалось загрузить пример';
+    const status=document.getElementById('captcha-status');
+    if(status)status.textContent=err.message;
+  }
+}
+
 function renderLogin(error=''){
-  app.innerHTML=`<main class="login-wrap"><form class="login-card" id="login-form"><div class="brand-mark">Д</div><h1>Учёт дверей</h1><p class="muted">Вход в систему</p>${error?`<p class="error">${esc(error)}</p>`:''}<div class="field"><label for="username">Логин</label><input id="username" name="username" autocomplete="username" required></div><div class="field"><label for="password">Пароль</label><input id="password" name="password" type="password" autocomplete="current-password" required></div><button class="btn block" type="submit">Войти</button><p class="hint">Для первого входа требуется подключение к серверу.</p></form></main>`;
+  loginCaptchaId='';
+  app.innerHTML=`<main class="login-wrap"><form class="login-card" id="login-form"><div class="brand-mark">Д</div><h1>Учёт дверей</h1><p class="muted">Вход в систему</p>${error?`<p class="error">${esc(error)}</p>`:''}<div class="field"><label for="username">Логин</label><input id="username" name="username" autocomplete="username" required></div><div class="field"><label for="password">Пароль</label><input id="password" name="password" type="password" autocomplete="current-password" required></div><div class="field"><label for="captcha-answer">Проверочный пример</label><div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><strong id="captcha-question" style="font-size:18px;letter-spacing:.3px">Загрузка…</strong><button class="btn" id="captcha-refresh" type="button" style="padding:7px 11px">Обновить</button></div><input id="captcha-answer" name="captcha_answer" inputmode="numeric" autocomplete="off" placeholder="Введите ответ" required><small id="captcha-status" class="hint"></small></div><button class="btn block" type="submit">Войти</button><p class="hint">Для первого входа требуется подключение к серверу.</p></form></main>`;
+  document.getElementById('captcha-refresh').addEventListener('click',refreshLoginCaptcha);
+  refreshLoginCaptcha();
   document.getElementById('login-form').addEventListener('submit',async e=>{
-    e.preventDefault();const form=e.currentTarget;const btn=form.querySelector('button');btn.disabled=true;btn.textContent='Вход…';
-    try{const data=await api('/auth/login',{method:'POST',body:JSON.stringify({username:form.username.value,password:form.password.value})});state.user=data.user;state.csrf=data.csrf_token;state.serverAuthenticated=true;await metaPut('auth',{user:state.user});await loadWorkTypes();state.page='home';render();toast('Вход выполнен');}
-    catch(err){renderLogin(err.message);}finally{btn.disabled=false;}
+    e.preventDefault();
+    const form=e.currentTarget;
+    const btn=form.querySelector('button[type="submit"]');
+    btn.disabled=true;btn.textContent='Проверка…';
+    try{
+      if(!loginCaptchaId)throw new Error('CAPTCHA ещё не загружена. Обновите пример.');
+      const data=await api('/auth/login',{method:'POST',body:JSON.stringify({
+        username:form.username.value,
+        password:form.password.value,
+        captcha_id:loginCaptchaId,
+        captcha_answer:form.captcha_answer.value.trim()
+      })});
+      loginCaptchaId='';
+      state.user=data.user;state.csrf=data.csrf_token;state.serverAuthenticated=true;
+      await metaPut('auth',{user:state.user});
+      await loadWorkTypes();state.page='home';render();toast('Вход выполнен');
+    }catch(err){
+      renderLogin(err.message);
+    }finally{
+      btn.disabled=false;
+    }
   });
 }
 
