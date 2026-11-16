@@ -504,6 +504,7 @@ async function logout(){
   if(navigator.onLine&&state.serverAuthenticated){try{await api('/auth/logout',{method:'POST',body:'{}'});}catch(_){}}
   state.user=null;state.csrf='';state.serverAuthenticated=false;await metaPut('auth',null);renderLogin();
 }
+let reconnecting=false;
 async function reconnectAndSync(){
   if(!navigator.onLine||!state.user||reconnecting)return;
   reconnecting=true;
