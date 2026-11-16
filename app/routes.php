@@ -44,6 +44,7 @@ return static function (Router $router): void {
     });
 
     // 12.1 Авторизация
+    $router->get('/api/v1/auth/captcha', [$auth, 'captcha']);
     $router->post('/api/v1/auth/login',  [$auth, 'login']);
     $router->post('/api/v1/auth/logout', Guard::auth([$auth, 'logout']));
     $router->get('/api/v1/auth/me',      Guard::auth([$auth, 'me']));
