@@ -412,6 +412,11 @@ function recordHtml(r){
   </article>`;
 }
 function bindWorkCards(container){
+  if(!document.getElementById('work-card-interaction-style')){
+    const style=document.createElement('style');style.id='work-card-interaction-style';
+    style.textContent='.work-record-card{cursor:pointer;transition:border-color .16s,transform .16s,box-shadow .16s}.work-record-card:hover,.work-record-card:focus-visible{border-color:var(--blue,#55b9e9);outline:none;transform:translateY(-1px);box-shadow:0 8px 24px #0002}.work-card-trailing{display:grid;justify-items:end;gap:8px;flex:0 0 auto}.work-card-open{font-size:12px;color:var(--blue,#55b9e9);font-weight:650}';
+    document.head.append(style);
+  }
   if(!container||container.dataset.workCardsBound==='1')return;
   container.dataset.workCardsBound='1';
   container.addEventListener('click',e=>{
