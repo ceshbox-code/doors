@@ -29,13 +29,13 @@ TWA сохраняет реальный HTTPS origin сайта и исполь�
 
 ## Что нужно для генерации APK
 
-Нужен публичный HTTPS URL DOOR, открывающий приложение в корне домена, например `https://door.example.com/`. Сервер должен отдавать `/manifest.json`, `/sw.js`, `/api/v1/*` и статические файлы с этого же origin.
+Нужен публичный HTTPS URL DOOR, открывающий приложение в корне домена, например `https://doors.klenovoe.ru/`. Сервер должен отдавать `/manifest.json`, `/sw.js`, `/api/v1/*` и статические файлы с этого же origin.
 
 На Windows/Git Bash после публикации обновлённого DOOR:
 
 ```bash
 npm install -g @bubblewrap/cli
-bubblewrap init --manifest="https://YOUR-DOOR-DOMAIN/manifest.json"
+bubblewrap init --manifest="https://doors.klenovoe.ru/manifest.json"
 ```
 
 В мастере Bubblewrap проверьте:
