@@ -1,13 +1,13 @@
 {
-  "name": "Учёт дверей",
-  "short_name": "Двери",
+  "name": "DOOR — Учёт дверей",
+  "short_name": "DOOR",
   "description": "Учёт выполненных работ, дверей и оплаты",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#f3f6f8",
-  "theme_color": "#183b56",
+  "background_color": "#e9edf5",
+  "theme_color": "#e9edf5",
   "lang": "ru",
   "icons": [
     {"src": "/assets/door.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}
