@@ -13,6 +13,7 @@ final class WorkRecord
         $voided = $r['voided_at'] !== null;
         return [
             'id'           => (int) $r['id'],
+            'group_id'     => isset($r['group_id']) && $r['group_id'] !== null ? (int) $r['group_id'] : null,
             'status'       => $voided ? 'voided' : 'active',
             'work_type'    => ['id' => (int) $r['work_type_id'], 'name' => $r['work_type_name']],
             'door'         => $r['door_id'] === null ? null : ['id' => (int) $r['door_id'], 'number' => $r['door_number']],

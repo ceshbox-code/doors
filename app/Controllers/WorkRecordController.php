@@ -31,6 +31,20 @@ final class WorkRecordController extends BaseController
         return $res['replayed'] ? $response->withHeader('Idempotent-Replay', 'true') : $response;
     }
 
+    public function storeBatch(Request $r): Response
+    {
+        $key = (string) $r->header('Idempotency-Key');
+        if ($key === '') {
+            throw new ApiException('IDEMPOTENCY_KEY_REQUIRED', 'Передайте уникальный заголовок Idempotency-Key', 400);
+        }
+        if ($r->bodyTooLarge) {
+            throw new ApiException('PAYLOAD_TOO_LARGE', 'Размер запроса превышает допустимый (64 МБ)', 413);
+        }
+        $res = $this->records->registerBatch($r->user, $r->input(), $r->files, $key, $r->ip);
+        $response = Response::ok($res['data'], $res['status']);
+        return $res['replayed'] ? $response->withHeader('Idempotent-Replay', 'true') : $response;
+    }
+
     public function index(Request $r): Response
     {
         return Response::ok($this->records->list($r->user, $r->query));

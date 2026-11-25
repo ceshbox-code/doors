@@ -39,7 +39,7 @@ final class PaymentRepository
     /** Обычное чтение без блокировки (чтобы узнать расчёт и заблокировать в правильном порядке). */
     public function peek(int $id): ?array
     {
-        $st = Database::pdo()->prepare('SELECT id, payroll_run_id FROM payments WHERE id = ?');
+        $st = Database::pdo()->prepare('SELECT id, user_id, payroll_run_id FROM payments WHERE id = ?');
         $st->execute([$id]);
         return $st->fetch() ?: null;
     }

@@ -88,6 +88,15 @@ final class UserRepository
         $this->pdo()->prepare('UPDATE users SET ' . implode(', ', $sets) . ' WHERE id = ?')->execute($args);
     }
 
+    /** @return array<int,array{id:int,full_name:string,role:string}> */
+    public function activeMasters(): array
+    {
+        $st = $this->pdo()->query(
+            "SELECT id, full_name, role FROM users WHERE role = 'master' AND is_active = 1 ORDER BY full_name, id"
+        );
+        return $st->fetchAll();
+    }
+
     /** Блокирует и возвращает id действующих администраторов (защита от удаления последнего). */
     public function lockActiveOwnerIds(): array
     {

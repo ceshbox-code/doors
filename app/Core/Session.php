@@ -7,6 +7,7 @@ namespace App\Core;
 final class Session
 {
     public const COOKIE = 'DOORSESS';
+    public const COOKIE_LIFETIME = 86400; // 24 часа
 
     public static function hasCookie(): bool
     {
@@ -30,10 +31,12 @@ final class Session
         }
 
         session_name(self::COOKIE);
+        $secure = (bool) Config::get('session.cookie_secure', true);
+
         session_set_cookie_params([
-            'lifetime' => 0,
+            'lifetime' => self::COOKIE_LIFETIME,
             'path'     => '/',
-            'secure'   => (bool) Config::get('session.cookie_secure', true),
+            'secure'   => $secure,
             'httponly' => true,
             'samesite' => 'Lax',
         ]);
@@ -45,7 +48,17 @@ final class Session
             $_SESSION = [];
             session_regenerate_id(true);
         }
+
         $_SESSION['last_activity'] = $now;
+
+        // Продлеваем авторизацию на 24 часа при активности.
+        setcookie(self::COOKIE, session_id(), [
+            'expires'  => $now + self::COOKIE_LIFETIME,
+            'path'     => '/',
+            'secure'   => $secure,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
     }
 
     public static function destroy(): void

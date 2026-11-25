@@ -44,6 +44,7 @@ return static function (Router $router): void {
     });
 
     // 12.1 Авторизация
+    $router->get('/api/v1/auth/captcha', [$auth, 'captcha']);
     $router->post('/api/v1/auth/login',  [$auth, 'login']);
     $router->post('/api/v1/auth/logout', Guard::auth([$auth, 'logout']));
     $router->get('/api/v1/auth/me',      Guard::auth([$auth, 'me']));
@@ -55,8 +56,9 @@ return static function (Router $router): void {
     $router->patch('/api/v1/users/{id}',             Guard::auth([$users, 'update'],     'users.manage'));
     $router->post('/api/v1/users/{id}/deactivate',   Guard::auth([$users, 'deactivate'], 'users.manage'));
     $router->post('/api/v1/users/{id}/activate',     Guard::auth([$users, 'activate'],   'users.manage'));
+    $router->get('/api/v1/executors',                 Guard::auth([$users, 'executors'], 'executors.view'));
 
-    // 12.3 Двери (номер двери создаётся автоматически; ручное создание — только администратор)
+    // 12.3 Двери (номер создаётся автоматически; ручное создание через API не предоставляется ролям)
     $router->post('/api/v1/doors',                    Guard::auth([$doors, 'store'],    'doors.create'));
     $router->get('/api/v1/doors',                     Guard::auth([$doors, 'index'],    'doors.view'));
     $router->get('/api/v1/doors/number/{number}',     Guard::auth([$doors, 'byNumber'], 'doors.lookup'));
@@ -80,6 +82,7 @@ return static function (Router $router): void {
     $router->get('/api/v1/users/{id}/rates',          Guard::auth([$rates, 'forUser'], 'rates.manage'));
 
     // 12.6 Выполненные работы (исполнитель видит только свои — проверка в сервисе)
+    $router->post('/api/v1/work-records/batch',       Guard::auth([$works, 'storeBatch'], 'work.register'));
     $router->post('/api/v1/work-records',             Guard::auth([$works, 'store'],  'work.register'));
     $router->get('/api/v1/work-records',              Guard::auth([$works, 'index'],  ['work.view_own', 'work.view_all']));
     $router->get('/api/v1/work-records/{id}',         Guard::auth([$works, 'show'],   ['work.view_own', 'work.view_all']));
@@ -92,7 +95,7 @@ return static function (Router $router): void {
     $router->get('/api/v1/photos/{id}',               Guard::auth([$photos, 'show'],    ['photos.view', 'work.view_own']));
     $router->delete('/api/v1/photos/{id}',            Guard::auth([$photos, 'destroy'], 'photos.delete'));
 
-    // 12.8 Финансовый учёт (изменения — только администратор; директор — просмотр; исполнитель — своё)
+    // 12.8 Финансовый учёт (директор — полный контроль; мастер — только собственные данные)
     $router->get('/api/v1/finance/summary',           Guard::auth([$fin, 'summary'],  'finance.view_all'));
     $router->get('/api/v1/finance/accruals',          Guard::auth([$fin, 'accruals'], $view));
     $router->get('/api/v1/finance/balances',          Guard::auth([$fin, 'balances'], 'finance.view_all'));
@@ -118,15 +121,15 @@ return static function (Router $router): void {
     $router->get('/api/v1/stats/summary',     Guard::auth([$stat, 'summary'],   'stats.view'));
     $router->get('/api/v1/stats/daily',       Guard::auth([$stat, 'daily'],     'stats.view'));
     $router->get('/api/v1/stats/work-types',  Guard::auth([$stat, 'workTypes'], 'stats.view'));
-    $router->get('/api/v1/stats/users',       Guard::auth([$stat, 'users'],     'stats.view'));
-    $router->get('/api/v1/stats/doors',       Guard::auth([$stat, 'doors'],     'stats.view'));
+    $router->get('/api/v1/stats/users',       Guard::auth([$stat, 'users'],     'stats.view_details'));
+    $router->get('/api/v1/stats/doors',       Guard::auth([$stat, 'doors'],     'stats.view_details'));
 
     // 12.10 Экспорт. Расчётный лист доступен и исполнителю (только свой подтверждённый — проверка в сервисе)
-    $router->get('/api/v1/export/pdf/production',   Guard::auth([$exp, 'production'], 'reports.export'));
-    $router->get('/api/v1/export/pdf/payments',     Guard::auth([$exp, 'payments'],   'reports.export'));
-    $router->get('/api/v1/export/pdf/finance',      Guard::auth([$exp, 'finance'],    'reports.export'));
-    $router->get('/api/v1/export/pdf/photos',       Guard::auth([$exp, 'photos'],     'reports.export'));
+    $router->get('/api/v1/export/pdf/production',   Guard::auth([$exp, 'production'], ['reports.export', 'reports.export_own']));
+    $router->get('/api/v1/export/pdf/payments',     Guard::auth([$exp, 'payments'],   ['reports.export', 'reports.export_own']));
+    $router->get('/api/v1/export/pdf/finance',      Guard::auth([$exp, 'finance'],    ['reports.export', 'reports.export_own']));
+    $router->get('/api/v1/export/pdf/photos',       Guard::auth([$exp, 'photos'],     ['reports.export', 'reports.export_own']));
     $router->get('/api/v1/export/pdf/payroll/{id}', Guard::auth([$exp, 'payslip'],    ['reports.export', 'finance.view_own']));
-    $router->get('/api/v1/export/csv',              Guard::auth([$exp, 'csv'],        'reports.export'));
-    $router->get('/api/v1/export/xlsx',             Guard::auth([$exp, 'xlsx'],       'reports.export'));
+    $router->get('/api/v1/export/csv',              Guard::auth([$exp, 'csv'],        ['reports.export', 'reports.export_own']));
+    $router->get('/api/v1/export/xlsx',             Guard::auth([$exp, 'xlsx'],       ['reports.export', 'reports.export_own']));
 };

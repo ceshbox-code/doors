@@ -11,6 +11,7 @@ use App\Helpers\Input;
 use App\Helpers\Money;
 use App\Models\Payment;
 use App\Repositories\AdjustmentRepository;
+use App\Repositories\AdvanceRepository;
 use App\Repositories\FinanceRepository;
 use App\Repositories\PaymentRepository;
 use App\Repositories\PayrollRepository;
@@ -30,6 +31,7 @@ final class PaymentService
     private PayrollRepository $payroll;
     private FinanceRepository $finance;
     private AdjustmentRepository $adjustments;
+    private AdvanceRepository $advances;
     private UserRepository $users;
     private IdempotencyService $idem;
     private AuditService $audit;
@@ -40,6 +42,7 @@ final class PaymentService
         $this->payroll = new PayrollRepository();
         $this->finance = new FinanceRepository();
         $this->adjustments = new AdjustmentRepository();
+        $this->advances = new AdvanceRepository();
         $this->users = new UserRepository();
         $this->idem = new IdempotencyService();
         $this->audit = new AuditService();
@@ -66,7 +69,95 @@ final class PaymentService
             $total = Money::add($total, (string) $a['amount']);
             $items[] = $this->presentAllocation($a);
         }
-        return Payment::present($row) + ['allocated_total' => $total, 'allocations' => $items];
+        $amount = (string) $row['amount'];
+        $advance = '0.00';
+
+        if ($row['status'] === 'draft' || $row['status'] === 'posted') {
+            $advance = Money::cmp($amount, $total) > 0
+                ? Money::sub($amount, $total)
+                : '0.00';
+        }
+
+        return Payment::present($row) + [
+            'allocated_total' => $total,
+            'advance_amount' => $advance,
+            'unallocated_amount' => $advance,
+            'allocations' => $items,
+        ];
+    }
+
+    /**
+     * Проверяет распределение, допускающее остаток выплаты.
+     * Остаток становится авансом только при подтверждении выплаты.
+     */
+    private function validateAllocationsWithRemainder(
+        string $amount,
+        array $allocations,
+        array $outstanding,
+        bool $allowRemainder
+    ): string {
+        $sum = '0.00';
+        $seen = [];
+
+        foreach ($allocations as $allocation) {
+            $workId = (int) $allocation['work_record_id'];
+            $part = (string) $allocation['amount'];
+
+            if ($workId <= 0 || isset($seen[$workId])) {
+                throw new ApiException(
+                    'ALLOCATION_INVALID',
+                    'Некорректное или повторное начисление в распределении',
+                    422
+                );
+            }
+
+            $seen[$workId] = true;
+
+            if (Money::cmp($part, '0') <= 0) {
+                throw new ApiException('ALLOCATION_INVALID', 'Сумма распределения должна быть больше нуля', 422);
+            }
+
+            $left = $outstanding[$workId] ?? null;
+            if ($left === null) {
+                throw new ApiException(
+                    'ALLOCATION_INVALID',
+                    "Начисление №{$workId} отсутствует среди доступных начислений",
+                    422,
+                    ['work_record_id' => $workId]
+                );
+            }
+
+            if (Money::cmp($part, $left) > 0) {
+                throw new ApiException(
+                    'ALLOCATION_EXCEEDS_OUTSTANDING',
+                    "Сумма по начислению №{$workId} превышает неоплаченный остаток {$left}",
+                    409,
+                    ['work_record_id' => $workId, 'outstanding' => $left, 'requested' => $part]
+                );
+            }
+
+            $sum = Money::add($sum, $part);
+        }
+
+        if (Money::cmp($sum, $amount) > 0) {
+            throw new ApiException(
+                'ALLOCATION_SUM_EXCEEDS_PAYMENT',
+                'Распределение не может превышать сумму выплаты',
+                422,
+                ['allocated' => $sum, 'amount' => $amount]
+            );
+        }
+
+        if (!$allowRemainder && Money::cmp($sum, $amount) !== 0) {
+            throw new ApiException(
+                'ALLOCATION_SUM_MISMATCH',
+                'Для выплаты по расчёту сумма распределения должна равняться сумме выплаты',
+                422,
+                ['allocated' => $sum, 'amount' => $amount]
+            );
+        }
+
+        return Money::sub($amount, $sum);
     }
 
     private function presentAllocation(array $a): array
@@ -146,7 +237,7 @@ final class PaymentService
             }
 
             // Получатель: выплачивать можно и деактивированному исполнителю (расчёт при увольнении)
-            $user = $this->users->find($d['user_id']);
+            $user = $this->users->find($d['user_id'], true);
             if ($user === null || !in_array($user['role'], ['master', 'owner'], true)) {
                 throw new ApiException('USER_NOT_FOUND', 'Получатель не найден или не является исполнителем', 404);
             }
@@ -167,14 +258,13 @@ final class PaymentService
                 $plan = AllocationPlanner::auto($d['amount'], array_map(
                     static fn(array $o): array => ['id' => (int) $o['id'], 'outstanding' => (string) $o['outstanding']], $outstanding
                 ));
-                if (Money::cmp($plan['remainder'], '0') > 0) {
-                    $avail = '0.00';
-                    foreach ($outstanding as $o) {
-                        $avail = Money::add($avail, (string) $o['outstanding']);
-                    }
-                    throw new ApiException('AMOUNT_EXCEEDS_OUTSTANDING',
-                        'Сумма выплаты больше неоплаченных начислений получателя. Доступно к распределению: ' . $avail, 422,
-                        ['available' => $avail, 'amount' => $d['amount']]);
+                if ($d['payroll_run_id'] !== null && Money::cmp($plan['remainder'], '0') > 0) {
+                    throw new ApiException(
+                        'AMOUNT_EXCEEDS_OUTSTANDING',
+                        'Выплата по расчёту не может превышать сумму начислений этого расчёта',
+                        422,
+                        ['remainder' => $plan['remainder'], 'amount' => $d['amount']]
+                    );
                 }
                 $allocations = $plan['plan'];
             } else {
@@ -182,7 +272,12 @@ final class PaymentService
                 foreach ($outstanding as $o) {
                     $byId[(int) $o['id']] = (string) $o['outstanding'];
                 }
-                AllocationPlanner::validate($d['amount'], $allocations, $byId);
+                $this->validateAllocationsWithRemainder(
+                    $d['amount'],
+                    $allocations,
+                    $byId,
+                    $d['payroll_run_id'] === null
+                );
             }
 
             $d['payment_date'] = $d['payment_date'] ?? Dates::nowUtc();      // по умолчанию — момент создания (после проверки ключа)
@@ -218,7 +313,12 @@ final class PaymentService
             foreach ($outstanding as $o) {
                 $byId[(int) $o['id']] = (string) $o['outstanding'];
             }
-            AllocationPlanner::validate((string) $pay['amount'], $allocations, $byId);
+            $this->validateAllocationsWithRemainder(
+                (string) $pay['amount'],
+                $allocations,
+                $byId,
+                $pay['payroll_run_id'] === null
+            );
 
             $old = array_map(static fn(array $a): array => ['work_record_id' => (int) $a['work_record_id'], 'amount' => $a['amount']], $this->payments->allocations($id));
             $this->payments->deleteAllocations($id);           // у черновика распределение ещё не является финансовым фактом
@@ -232,13 +332,18 @@ final class PaymentService
 
     // ------------------------------------------------------------------ подтверждение и отмена
 
-    /** Расчёт блокируется раньше выплаты — тот же порядок, что при отмене расчёта (нет взаимных блокировок). */
+    /** Единый порядок блокировок: сотрудник -> расчёт -> выплата -> работы. */
     private function lockRunThenPayment(int $id): array
     {
         $peek = $id > 0 ? $this->payments->peek($id) : null;
         if ($peek === null) {
             throw new ApiException('NOT_FOUND', 'Выплата не найдена', 404);
         }
+
+        if ($this->users->find((int) $peek['user_id'], true) === null) {
+            throw new ApiException('NOT_FOUND', 'Получатель выплаты не найден', 404);
+        }
+
         if ($peek['payroll_run_id'] !== null) {
             $this->payroll->lock((int) $peek['payroll_run_id']);
         }
@@ -277,13 +382,14 @@ final class PaymentService
         }
 
         $rows = $this->payments->allocations($id);
-        if (!$rows) {
-            throw new ApiException('NO_ALLOCATIONS', 'У выплаты нет распределения', 422);
+        if (!$rows && $runId !== null) {
+            throw new ApiException('NO_ALLOCATIONS', 'У выплаты по расчёту нет распределения', 422);
         }
+
         $ids = array_map(static fn(array $r): int => (int) $r['work_record_id'], $rows);
 
         // Блокируем начисления и перечитываем уже распределённое блокирующим чтением
-        $locked = $this->payments->lockRecords($ids);
+        $locked = $ids ? $this->payments->lockRecords($ids) : [];
         $sum = '0.00';
         foreach ($rows as $r) {
             $rid = (int) $r['work_record_id'];
@@ -299,9 +405,14 @@ final class PaymentService
             }
             $sum = Money::add($sum, (string) $r['amount']);
         }
-        if (Money::cmp($sum, (string) $pay['amount']) !== 0) {
-            throw new ApiException('ALLOCATION_SUM_MISMATCH', 'Сумма распределения должна равняться сумме выплаты', 422, ['allocated' => $sum, 'amount' => $pay['amount']]);
+        if (Money::cmp($sum, (string) $pay['amount']) > 0) {
+            throw new ApiException('ALLOCATION_SUM_EXCEEDS_PAYMENT', 'Распределение превышает сумму выплаты', 422);
         }
+        if ($runId !== null && Money::cmp($sum, (string) $pay['amount']) !== 0) {
+            throw new ApiException('ALLOCATION_SUM_MISMATCH', 'Сумма распределения должна равняться сумме выплаты по расчёту', 422, ['allocated' => $sum, 'amount' => $pay['amount']]);
+        }
+
+        $advanceAmount = Money::sub((string) $pay['amount'], $sum);
         $already = $this->payments->postedSumsLocked($ids);
         foreach ($rows as $r) {
             $rid = (int) $r['work_record_id'];
@@ -314,8 +425,24 @@ final class PaymentService
         }
 
         $this->payments->markPosted($id, Dates::nowUtc());
+
+        if (Money::cmp($advanceAmount, '0') > 0) {
+            $this->advances->issue(
+                (int) $pay['user_id'],
+                $id,
+                (float) $advanceAmount,
+                (int) $actor['id'],
+                'Остаток подтверждённой выплаты'
+            );
+        }
+
         $this->audit->log((int) $actor['id'], 'payment.post', 'payment', $id,
-            ['status' => 'draft'], ['status' => 'posted', 'amount' => $pay['amount'], 'user_id' => (int) $pay['user_id']], null, $ip);
+            ['status' => 'draft'], [
+                'status' => 'posted',
+                'amount' => $pay['amount'],
+                'user_id' => (int) $pay['user_id'],
+                'advance_amount' => $advanceAmount,
+            ], null, $ip);
     }
 
     public function cancel(array $actor, int $id, array $input, string $ip): array
@@ -326,6 +453,14 @@ final class PaymentService
             if ($pay['status'] === 'cancelled') {
                 throw new ApiException('PAYMENT_ALREADY_CANCELLED', 'Выплата уже отменена', 409);
             }
+            if ($pay['status'] === 'posted') {
+                $this->advances->reverseForPayment(
+                    $id,
+                    (int) $actor['id'],
+                    $reason
+                );
+            }
+
             $this->payments->markCancelled($id);
             $adjId = null;
             if ($pay['status'] === 'posted') {

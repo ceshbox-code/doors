@@ -16,7 +16,7 @@ final class FinanceRepository
      */
     public function outstandingForUser(int $userId, ?int $runId = null): array
     {
-        $args = [$userId, $userId];
+        $args = [$userId, $userId, $userId];
         $runSql = '';
         if ($runId !== null) {
             $runSql = ' AND wr.id IN (SELECT work_record_id FROM payroll_run_items WHERE payroll_run_id = ? AND is_active = 1)';
@@ -28,10 +28,24 @@ final class FinanceRepository
                     wr.total_amount - COALESCE(x.paid, 0) AS outstanding
              FROM work_records wr
              LEFT JOIN (
-                 SELECT pa.work_record_id, SUM(pa.amount) AS paid
-                 FROM payment_allocations pa JOIN payments p ON p.id = pa.payment_id
-                 WHERE p.status = 'posted' AND p.user_id = ?
-                 GROUP BY pa.work_record_id
+                 SELECT paid_rows.work_record_id, SUM(paid_rows.amount) AS paid
+                 FROM (
+                     SELECT pa.work_record_id, pa.amount
+                     FROM payment_allocations pa
+                     JOIN payments p ON p.id = pa.payment_id
+                     WHERE p.status = 'posted' AND p.user_id = ?
+                     UNION ALL
+                     SELECT al.work_record_id, al.amount
+                     FROM employee_advance_ledger al
+                     WHERE al.user_id = ? AND al.type = 'apply'
+                       AND al.work_record_id IS NOT NULL
+                       AND NOT EXISTS (
+                           SELECT 1 FROM employee_advance_ledger rev
+                           WHERE rev.type = 'reverse_apply'
+                             AND rev.reversal_of_id = al.id
+                       )
+                 ) paid_rows
+                 GROUP BY paid_rows.work_record_id
              ) x ON x.work_record_id = wr.id
              WHERE wr.user_id = ? AND wr.voided_at IS NULL
                AND wr.total_amount - COALESCE(x.paid, 0) > 0 {$runSql}
@@ -50,13 +64,16 @@ final class FinanceRepository
      */
     public function totals(?array $userIds = null, ?string $fromUtc = null, ?string $toUtc = null, bool $onlyWithActivity = true): array
     {
-        $acc = $pay = $adj = '';
-        $accArgs = $payArgs = $adjArgs = [];
+        $acc = $pay = $adj = $adv = $issue = $reverseIssue = '';
+        $accArgs = $payArgs = $adjArgs = $advArgs = $issueArgs = $reverseIssueArgs = [];
         foreach ([[$fromUtc, '>='], [$toUtc, '<']] as [$bound, $op]) {
             if ($bound !== null) {
                 $acc .= " AND wr.completed_at {$op} ?";  $accArgs[] = $bound;
                 $pay .= " AND p.payment_date {$op} ?";   $payArgs[] = $bound;
                 $adj .= " AND fa.created_at {$op} ?";    $adjArgs[] = $bound;
+                $adv .= " AND awr.completed_at {$op} ?";  $advArgs[] = $bound;
+                $issue .= " AND ea.created_at {$op} ?";   $issueArgs[] = $bound;
+                $reverseIssue .= " AND er.created_at {$op} ?"; $reverseIssueArgs[] = $bound;
             }
         }
         $where = "u.role IN ('master','owner')";
@@ -68,18 +85,60 @@ final class FinanceRepository
             $where .= ' AND u.id IN (' . implode(',', array_map('intval', $userIds)) . ')';
         }
         if ($onlyWithActivity && $userIds === null) {
-            $where .= " AND (u.role = 'master' OR EXISTS (SELECT 1 FROM work_records w WHERE w.user_id = u.id)
-                             OR EXISTS (SELECT 1 FROM payments pp WHERE pp.user_id = u.id))";
+            $where .= " AND (u.role = 'master'
+                             OR EXISTS (SELECT 1 FROM work_records w WHERE w.user_id = u.id)
+                             OR EXISTS (SELECT 1 FROM payments pp WHERE pp.user_id = u.id)
+                             OR EXISTS (SELECT 1 FROM employee_advance_ledger ea WHERE ea.user_id = u.id))";
         }
         $sql = "SELECT u.id AS user_id, u.full_name, u.role, u.is_active,
                   COALESCE((SELECT SUM(wr.total_amount) FROM work_records wr WHERE wr.user_id = u.id AND wr.voided_at IS NULL{$acc}), 0) AS accrued,
                   (SELECT COUNT(*) FROM work_records wr WHERE wr.user_id = u.id AND wr.voided_at IS NULL{$acc}) AS works_count,
-                  COALESCE((SELECT SUM(pa.amount) FROM payment_allocations pa JOIN payments p ON p.id = pa.payment_id
-                            WHERE p.user_id = u.id AND p.status = 'posted'{$pay}), 0) AS paid,
-                  COALESCE((SELECT SUM(fa.amount) FROM financial_adjustments fa WHERE fa.user_id = u.id AND fa.affects_balance = 1{$adj}), 0) AS adjustments
+                  (
+                    COALESCE((SELECT SUM(pa.amount) FROM payment_allocations pa JOIN payments p ON p.id = pa.payment_id
+                              WHERE p.user_id = u.id AND p.status = 'posted'{$pay}), 0)
+                    +
+                    COALESCE((SELECT SUM(al.amount)
+                              FROM employee_advance_ledger al
+                              JOIN work_records awr ON awr.id = al.work_record_id
+                              WHERE al.user_id = u.id AND al.type = 'apply'
+                                AND awr.voided_at IS NULL
+                                AND NOT EXISTS (
+                                    SELECT 1 FROM employee_advance_ledger rev
+                                    WHERE rev.type = 'reverse_apply' AND rev.reversal_of_id = al.id
+                                ){$adv}), 0)
+                  ) AS paid,
+                  COALESCE((SELECT SUM(fa.amount) FROM financial_adjustments fa WHERE fa.user_id = u.id AND fa.affects_balance = 1{$adj}), 0) AS adjustments,
+                  (
+                    COALESCE((SELECT SUM(ea.amount) FROM employee_advance_ledger ea
+                              WHERE ea.user_id = u.id AND ea.type = 'issue'{$issue}), 0)
+                    -
+                    COALESCE((SELECT SUM(er.amount) FROM employee_advance_ledger er
+                              WHERE er.user_id = u.id AND er.type = 'reverse_issue'{$reverseIssue}), 0)
+                  ) AS advance_issued,
+                  COALESCE((SELECT SUM(al.amount)
+                            FROM employee_advance_ledger al
+                            JOIN work_records awr ON awr.id = al.work_record_id
+                            WHERE al.user_id = u.id AND al.type = 'apply'
+                              AND awr.voided_at IS NULL
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM employee_advance_ledger rev
+                                  WHERE rev.type = 'reverse_apply' AND rev.reversal_of_id = al.id
+                              ){$adv}), 0) AS advance_applied,
+                  COALESCE((SELECT SUM(
+                              CASE
+                                WHEN el.type IN ('issue', 'reverse_apply') THEN el.amount
+                                WHEN el.type IN ('apply', 'reverse_issue') THEN -el.amount
+                                ELSE 0
+                              END
+                            )
+                            FROM employee_advance_ledger el
+                            WHERE el.user_id = u.id), 0) AS advance_balance
                 FROM users u WHERE {$where} ORDER BY u.full_name, u.id";
         $st = Database::pdo()->prepare($sql);
-        $st->execute(array_merge($accArgs, $accArgs, $payArgs, $adjArgs, $whereArgs));
+        $st->execute(array_merge(
+            $accArgs, $accArgs, $payArgs, $advArgs, $adjArgs,
+            $issueArgs, $reverseIssueArgs, $advArgs, $whereArgs
+        ));
         $out = [];
         foreach ($st->fetchAll() as $r) {
             $out[(int) $r['user_id']] = $r;
@@ -130,9 +189,23 @@ final class FinanceRepository
                  LEFT JOIN doors d ON d.id = wr.door_id
                  JOIN users u ON u.id = wr.user_id
                  LEFT JOIN (
-                     SELECT pa.work_record_id, SUM(pa.amount) AS paid
-                     FROM payment_allocations pa JOIN payments p ON p.id = pa.payment_id
-                     WHERE p.status = 'posted' GROUP BY pa.work_record_id
+                     SELECT paid_rows.work_record_id, SUM(paid_rows.amount) AS paid
+                     FROM (
+                         SELECT pa.work_record_id, pa.amount
+                         FROM payment_allocations pa
+                         JOIN payments p ON p.id = pa.payment_id
+                         WHERE p.status = 'posted'
+                         UNION ALL
+                         SELECT al.work_record_id, al.amount
+                         FROM employee_advance_ledger al
+                         WHERE al.type = 'apply' AND al.work_record_id IS NOT NULL
+                           AND NOT EXISTS (
+                               SELECT 1 FROM employee_advance_ledger rev
+                               WHERE rev.type = 'reverse_apply'
+                                 AND rev.reversal_of_id = al.id
+                           )
+                     ) paid_rows
+                     GROUP BY paid_rows.work_record_id
                  ) x ON x.work_record_id = wr.id";
         $pdo = Database::pdo();
         $st = $pdo->prepare("SELECT COUNT(*) {$from}{$w}");
@@ -155,10 +228,27 @@ final class FinanceRepository
     public function postedAllocatedSumLocked(int $workRecordId): string
     {
         $st = Database::pdo()->prepare(
-            "SELECT COALESCE(SUM(pa.amount), 0) FROM payment_allocations pa JOIN payments p ON p.id = pa.payment_id
-             WHERE pa.work_record_id = ? AND p.status = 'posted' FOR UPDATE"
+            "SELECT
+                COALESCE((
+                    SELECT SUM(pa.amount)
+                    FROM payment_allocations pa
+                    JOIN payments p ON p.id = pa.payment_id
+                    WHERE pa.work_record_id = ? AND p.status = 'posted'
+                ), 0)
+                +
+                COALESCE((
+                    SELECT SUM(al.amount)
+                    FROM employee_advance_ledger al
+                    WHERE al.work_record_id = ? AND al.type = 'apply'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM employee_advance_ledger rev
+                          WHERE rev.type = 'reverse_apply'
+                            AND rev.reversal_of_id = al.id
+                      )
+                ), 0)
+             FOR UPDATE"
         );
-        $st->execute([$workRecordId]);
+        $st->execute([$workRecordId, $workRecordId]);
         return (string) $st->fetchColumn();
     }
 }

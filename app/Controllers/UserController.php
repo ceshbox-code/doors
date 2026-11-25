@@ -26,6 +26,11 @@ final class UserController
         return (int) $raw;
     }
 
+    public function executors(Request $r): Response
+    {
+        return Response::ok($this->users->activeMasters());
+    }
+
     public function index(Request $r): Response
     {
         return Response::ok($this->users->list($r->query));

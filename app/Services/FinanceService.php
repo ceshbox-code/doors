@@ -63,12 +63,18 @@ final class FinanceService
             'debt'         => Money::positive($balance),
             'overpayment'  => Money::negativePart($balance),
             'works_count'  => (int) ($t['works_count'] ?? 0),
+            'advance_issued' => bcadd((string) ($t['advance_issued'] ?? '0'), '0', 2),
+            'advance_applied' => bcadd((string) ($t['advance_applied'] ?? '0'), '0', 2),
+            'advance_balance' => bcadd((string) ($t['advance_balance'] ?? '0'), '0', 2),
         ];
     }
 
     private static function zero(): array
     {
-        return ['accrued' => '0', 'paid' => '0', 'adjustments' => '0', 'works_count' => 0];
+        return [
+            'accrued' => '0', 'paid' => '0', 'adjustments' => '0', 'works_count' => 0,
+            'advance_issued' => '0', 'advance_applied' => '0', 'advance_balance' => '0',
+        ];
     }
 
     public function userFinance(array $actor, int $userId, array $query): array
@@ -97,6 +103,9 @@ final class FinanceService
             $out['period'] = [
                 'from' => $period['from'], 'to' => $period['to'],
                 'accrued' => $f['accrued'], 'paid' => $f['paid'], 'adjustments' => $f['adjustments'], 'works_count' => $f['works_count'],
+                'advance_issued' => $f['advance_issued'],
+                'advance_applied' => $f['advance_applied'],
+                'advance_balance' => $endFigures['advance_balance'],
                 'balance_at_end' => $endFigures['balance'], 'debt_at_end' => $endFigures['debt'], 'overpayment_at_end' => $endFigures['overpayment'],
             ];
         }
@@ -117,7 +126,10 @@ final class FinanceService
             }
             if ($inPeriod) {
                 $p = self::figures($inPeriod[$uid] ?? self::zero());
-                $row['period'] = ['accrued' => $p['accrued'], 'paid' => $p['paid'], 'adjustments' => $p['adjustments']];
+                $row['period'] = [
+                    'accrued' => $p['accrued'], 'paid' => $p['paid'], 'adjustments' => $p['adjustments'],
+                    'advance_issued' => $p['advance_issued'], 'advance_applied' => $p['advance_applied'],
+                ];
             }
             $items[] = $row;
         }
@@ -130,6 +142,7 @@ final class FinanceService
         [$fromUtc, $toUtc] = self::bounds($period['from'], $period['to']);
         $sum = static function (array $rows): array {
             $acc = $paid = $adj = '0.00';
+            $advanceIssued = $advanceApplied = $advanceBalance = '0.00';
             $debt = $over = '0.00';
             $debtors = 0;
             foreach ($rows as $t) {
@@ -137,16 +150,31 @@ final class FinanceService
                 $acc = Money::add($acc, $f['accrued']);
                 $paid = Money::add($paid, $f['paid']);
                 $adj = Money::add($adj, $f['adjustments']);
+                $advanceIssued = Money::add($advanceIssued, $f['advance_issued']);
+                $advanceApplied = Money::add($advanceApplied, $f['advance_applied']);
+                $advanceBalance = Money::add($advanceBalance, $f['advance_balance']);
                 $debt = Money::add($debt, $f['debt']);
                 $over = Money::add($over, $f['overpayment']);
                 $debtors += Money::cmp($f['debt'], '0') > 0 ? 1 : 0;
             }
-            return ['accrued' => $acc, 'paid' => $paid, 'adjustments' => $adj, 'debt_total' => $debt, 'overpayment_total' => $over, 'executors_with_debt' => $debtors];
+            return [
+                'accrued' => $acc, 'paid' => $paid, 'adjustments' => $adj,
+                'advance_issued' => $advanceIssued,
+                'advance_applied' => $advanceApplied,
+                'advance_balance' => $advanceBalance,
+                'debt_total' => $debt,
+                'overpayment_total' => $over,
+                'executors_with_debt' => $debtors,
+            ];
         };
         $out = ['totals' => $sum($this->finance->totals(null, null, null))];
         if ($fromUtc !== null || $toUtc !== null) {
             $r = $sum($this->finance->totals(null, $fromUtc, $toUtc));
-            $out['period'] = ['from' => $period['from'], 'to' => $period['to'], 'accrued' => $r['accrued'], 'paid' => $r['paid'], 'adjustments' => $r['adjustments']];
+            $out['period'] = [
+                'from' => $period['from'], 'to' => $period['to'],
+                'accrued' => $r['accrued'], 'paid' => $r['paid'], 'adjustments' => $r['adjustments'],
+                'advance_issued' => $r['advance_issued'], 'advance_applied' => $r['advance_applied'],
+            ];
         }
         return $out;
     }
